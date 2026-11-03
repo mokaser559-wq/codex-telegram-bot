@@ -11,6 +11,8 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+from assistant.core import process_message
+
 BASE = Path.home() / ".local/share/codex-telegram"
 TOKEN_FILE = BASE / "bot_token"
 STATE_FILE = BASE / "update_offset"
@@ -18,7 +20,7 @@ ALLOWED_USER_ID = 1193680242
 _LOCAL_CODEX = "/home/rozzen/.local/bin/codex"
 CODEX = _LOCAL_CODEX if os.path.exists(_LOCAL_CODEX) else (shutil.which("codex") or "codex")
 SANDBOX = os.environ.get("CODEX_SANDBOX", "workspace-write")
-API = "https://api.telegram.org/bot" + TOKEN_FILE.read_text().strip()
+API = None
 TIMEOUT = 300
 MEMORY_FILE = BASE / "chat_memory.json"
 MEMORY_LIMIT = 10
@@ -104,8 +106,13 @@ def ask_codex(prompt, history=None):
 
 
 def main():
+    global API
     if not TOKEN_FILE.is_file():
         raise SystemExit("Не найден файл bot_token")
+    token = TOKEN_FILE.read_text(encoding="utf-8").strip()
+    if not token:
+        raise SystemExit("Файл bot_token пуст")
+    API = "https://api.telegram.org/bot" + token
     os.chmod(TOKEN_FILE, 0o600)
     start_ping_server()
 
@@ -121,9 +128,7 @@ def main():
             updates = telegram("getUpdates", params, timeout=35)
 
             for update in updates:
-                offset = update["update_id"] + 1
-                STATE_FILE.write_text(str(offset))
-                os.chmod(STATE_FILE, 0o600)
+                next_offset = update["update_id"] + 1
 
                 message = update.get("message", {})
                 user = message.get("from", {})
@@ -131,21 +136,20 @@ def main():
                 chat_id = message.get("chat", {}).get("id")
 
                 if user.get("id") != ALLOWED_USER_ID or not text or not chat_id:
-                    continue
-
-                if text == "/start":
-                    send(chat_id, "Привет! 😊 Я на связи. Пиши, что у тебя на уме — разберёмся вместе.")
-                    continue
-
-                if text == "/help":
-                    send(chat_id, "Пиши как другу 🙂 Могу поболтать, помочь разобраться в вопросе или взяться за задачу на компьютере.")
+                    offset = next_offset
+                    STATE_FILE.write_text(str(offset))
+                    os.chmod(STATE_FILE, 0o600)
                     continue
 
                 try:
                     memory = json.loads(MEMORY_FILE.read_text()) if MEMORY_FILE.exists() else {}
                     history = memory.get(str(chat_id), [])
                     send(chat_id, "Секундочку, сейчас посмотрю 😊")
-                    answer = ask_codex(text, history[-MEMORY_LIMIT:])
+                    answer = process_message(
+                        text,
+                        history[-MEMORY_LIMIT:],
+                        codex_handler=ask_codex,
+                    )
                     history.extend([
                         {"role": "user", "text": text},
                         {"role": "assistant", "text": answer}
@@ -153,12 +157,19 @@ def main():
                     memory[str(chat_id)] = history[-MEMORY_LIMIT:]
                     MEMORY_FILE.write_text(json.dumps(memory, ensure_ascii=False, indent=2))
                     os.chmod(MEMORY_FILE, 0o600)
+
+                    offset = next_offset
+                    STATE_FILE.write_text(str(offset))
+                    os.chmod(STATE_FILE, 0o600)
+
                     send(chat_id, answer)
                 except subprocess.TimeoutExpired:
                     send(chat_id, "Codex не завершил задание за 5 минут. Попробуй более короткий запрос.")
+                    break
                 except Exception as exc:
                     print("Ошибка обработки задания:", repr(exc), flush=True)
                     send(chat_id, "Не удалось выполнить задание. Подробности доступны в локальном терминале.")
+                    break
 
         except KeyboardInterrupt:
             print("\nМост остановлен.", flush=True)

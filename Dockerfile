@@ -5,4 +5,5 @@ ENV PYTHONUTF8=1 PYTHONUNBUFFERED=1 CODEX_SANDBOX=read-only
 USER node
 WORKDIR /home/node/app
 COPY --chown=node:node bridge.py start.sh ./
+COPY --chown=node:node assistant ./assistant
 CMD ["sh", "start.sh"]
