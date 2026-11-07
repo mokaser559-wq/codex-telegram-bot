@@ -1215,6 +1215,9 @@ def test_superseded_outbox_item_is_not_sent(monkeypatch):
         def outbox_is_current(self, item_id, claim_token):
             return False
 
+        def deliver_outbox(self, outgoing, send_callback):
+            return False
+
         def mark_outbox_sent(self, item_id, claim_token):
             self.marked_sent.append(item_id)
 
@@ -1305,6 +1308,18 @@ class OutboxFenceCursor:
             command_id, token = params
             if db.command_status == "processing" and db.command_id == command_id and db.command_token == token:
                 self.result = (command_id,)
+        elif query.startswith("SELECT i.generation FROM inbox i"):
+            db.delivery_lock.acquire()
+            db.delivery_locked = True
+            self.result = (db.inbox_generation,)
+        elif query.startswith("SELECT status, claim_token, generation FROM outbox"):
+            if db.status == "sending":
+                self.result = (db.status, db.claim_token, db.generation)
+        elif query.startswith("UPDATE outbox SET status = 'sent', sending_at = NULL, sent_at = now()") and "AND generation = %s RETURNING id" in query:
+            item_id, token, generation = params
+            if item_id == db.item_id and db.status == "sending" and db.claim_token == token and db.generation == generation:
+                db.status, db.claim_token, db.sending_at = "sent", None, None
+                self.result = (item_id,)
         elif query.startswith("SELECT id, chat_id, text, attempts FROM outbox"):
             if db.status == "pending":
                 self.result = (db.item_id, db.chat_id, db.text, db.attempts)
@@ -1333,6 +1348,8 @@ class OutboxFenceCursor:
                 db.status, db.claim_token, db.sending_at, db.last_error_code = "pending", None, None, error_code
                 self.result = (item_id,)
         elif query.startswith("UPDATE outbox SET status = 'pending', sending_at = NULL, claim_token = NULL"):
+            db.delivery_lock.acquire()
+            db.delivery_locked = True
             if (db.status == "sending" and "sending_at IS NULL OR" in query
                     and (db.sending_at is None or db.sending_at == "stale")):
                 db.status, db.claim_token, db.sending_at = "pending", None, None
@@ -1363,6 +1380,9 @@ class OutboxFenceConnection:
             (self.database.status, self.database.attempts, self.database.claim_token,
              self.database.sending_at, self.database.last_error_code, self.database.progress_updates,
              self.database.command_status, self.database.command_token) = self.snapshot
+        if getattr(self.database, "delivery_locked", False):
+            self.database.delivery_locked = False
+            self.database.delivery_lock.release()
         return False
     def cursor(self): return OutboxFenceCursor(self.database)
 
@@ -1381,6 +1401,8 @@ class OutboxFenceDatabase:
         self.last_error_code = None
         self.progress_updates = 0
         self.fail_on_progress = False
+        self.delivery_lock = threading.Lock()
+        self.delivery_locked = False
         self.statements = []
         self.command_id = 101
         self.command_status = "processing"
@@ -1753,3 +1775,61 @@ class InboxItemForTest:
     def __init__(self, payload):
         self.update_id = payload["update_id"]
         self.payload = payload
+
+
+def test_outbox_stale_recovery_race_does_not_duplicate_send(monkeypatch):
+    db = OutboxFenceDatabase()
+    store = PostgresStore(connect=db.connect)
+    old_item = store.claim_outbox()
+
+    a_at_send = threading.Event()
+    release_a = threading.Event()
+    sends = []
+    old_results = []
+    worker_errors = []
+
+    def fake_send(chat_id, text):
+        if threading.current_thread().name == "outbox-worker-a":
+            a_at_send.set()
+            if not release_a.wait(5):
+                raise AssertionError("worker A was not released")
+        sends.append((chat_id, text))
+
+    def deliver_old_item():
+        try:
+            old_results.append(bridge.deliver_outbox_item(store, old_item))
+        except BaseException as exc:
+            worker_errors.append(exc)
+
+    monkeypatch.setattr(bridge, "send", fake_send)
+
+    worker_a = threading.Thread(
+        target=deliver_old_item,
+        name="outbox-worker-a",
+    )
+    worker_a.start()
+
+    try:
+        assert a_at_send.wait(5), "worker A did not reach Telegram send"
+        db.sending_at = "stale"
+        recovery_done = threading.Event()
+
+        def recover_then_claim():
+            store.recover_stale()
+            recovery_done.set()
+
+        recovery = threading.Thread(target=recover_then_claim)
+        recovery.start()
+        assert not recovery_done.wait(0.05), "stale recovery bypassed the active delivery lock"
+    finally:
+        release_a.set()
+        worker_a.join(5)
+    recovery.join(5)
+
+    assert not worker_a.is_alive()
+    assert not recovery.is_alive()
+    assert worker_errors == []
+    assert old_results == [True]
+    assert sends == [(22, "reply")]
+    assert db.status == "sent"
+    assert db.claim_token is None

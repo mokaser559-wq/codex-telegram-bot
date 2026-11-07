@@ -568,6 +568,54 @@ class PostgresStore:
             row = cursor.fetchone()
             return bool(row and row[0])
 
+    def deliver_outbox(self, item: OutboxItem, send_callback) -> bool:
+        """Fence external delivery from stale recovery until its result commits."""
+        send_error = None
+        delivered = False
+        with self._db() as connection, connection.cursor() as cursor:
+            # Keep lock order consistent with inbox retry, which locks inbox
+            # before superseding its outbox rows.
+            cursor.execute(
+                """SELECT i.generation FROM inbox i
+                   JOIN outbox o USING (update_id) WHERE o.id = %s FOR UPDATE OF i""",
+                (item.id,),
+            )
+            inbox_row = cursor.fetchone()
+            if inbox_row is None:
+                return False
+            generation = inbox_row[0]
+            cursor.execute(
+                """SELECT status, claim_token, generation FROM outbox
+                   WHERE id = %s FOR UPDATE""",
+                (item.id,),
+            )
+            outbox_row = cursor.fetchone()
+            if (outbox_row is None or outbox_row[0] != "sending"
+                    or outbox_row[1] != item.claim_token
+                    or outbox_row[2] != generation):
+                return False
+
+            try:
+                send_callback(item.chat_id, item.text)
+            except BaseException as exc:
+                # Preserve Telegram's exception type for worker retry policy;
+                # _db intentionally translates exceptions raised in its body.
+                send_error = exc
+                connection.rollback()
+            else:
+                cursor.execute(
+                    """UPDATE outbox SET status = 'sent', sending_at = NULL, sent_at = now(),
+                       claim_token = NULL WHERE id = %s AND status = 'sending'
+                       AND claim_token = %s AND generation = %s RETURNING id""",
+                    (item.id, item.claim_token, generation),
+                )
+                if cursor.fetchone() is not None:
+                    cursor.execute("UPDATE bot_state SET last_outbox_progress_at = now() WHERE singleton = TRUE")
+                    delivered = True
+        if send_error is not None:
+            raise send_error
+        return delivered
+
     def retry_outbox(
         self,
         item_id: int,

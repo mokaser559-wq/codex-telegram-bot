@@ -575,12 +575,11 @@ def worker_loop(store, stop, fatal=None, mode="polling"):
 
 
 def deliver_outbox_item(store, outgoing):
-    """Revalidate claim ownership and generation immediately before Telegram I/O."""
-    if not store.outbox_is_current(outgoing.id, outgoing.claim_token):
+    """Send only while PostgreSQL fences this claim against stale recovery."""
+    result = store.deliver_outbox(outgoing, send)
+    if not result:
         LOG.info("Skipping superseded outbox item %s", outgoing.id)
-        return False
-    send(outgoing.chat_id, outgoing.text)
-    return store.mark_outbox_sent(outgoing.id, outgoing.claim_token)
+    return result
 
 
 def process_inbox_item(store, item, mode="polling"):
