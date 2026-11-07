@@ -1,0 +1,2 @@
+ALTER TABLE inbox
+    ADD COLUMN IF NOT EXISTS claim_token UUID;

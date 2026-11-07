@@ -1,0 +1,2 @@
+ALTER TABLE outbox
+    ADD COLUMN IF NOT EXISTS claim_token UUID;

@@ -24,14 +24,18 @@ class NoProviderConfigured(ProviderError):
 
 
 def _request(provider, prompt, history):
-    api_key = os.environ.get(provider["key_env"])
+    api_key = os.environ.get(provider["key_env"], "").strip()
     if not api_key:
         raise NoProviderConfigured(provider["name"])
 
+    model = configured_model(provider)
     messages = [{"role": "system", "content": (
         "Ты — Клодд, личный AI-ассистент. Общайся естественно и дружелюбно. "
         "Отвечай на языке пользователя, будь точным и не выдумывай факты. "
-        "Пиши понятно, без лишних вступлений."
+        "Пиши понятно, без лишних вступлений. "
+        f"Текущий основной AI-провайдер: {provider['name']}; активная модель: {model}. "
+        "Если спросят о твоей модели или провайдере, используй только эти сведения. "
+        "Codex — отдельный инструмент для технических задач и не является твоей моделью."
     )}]
 
     for item in history[-10:]:
@@ -43,7 +47,7 @@ def _request(provider, prompt, history):
     messages.append({"role": "user", "content": prompt})
 
     payload = json.dumps({
-        "model": os.environ.get(provider["model_env"], provider["default_model"]),
+        "model": model,
         "messages": messages,
         "temperature": 0.7,
     }).encode()
@@ -116,11 +120,25 @@ PROVIDERS = (
 )
 
 
+def configured_model(provider):
+    """Return the model actually selected for this provider request."""
+    return os.environ.get(provider["model_env"], "").strip() or provider["default_model"]
+
+
+def configured_provider_models():
+    """Expose active provider/model pairs without exposing credentials."""
+    return tuple(
+        (provider["name"], configured_model(provider))
+        for provider in PROVIDERS
+        if os.environ.get(provider["key_env"], "").strip()
+    )
+
+
 def generate_answer(prompt, history=None):
     history = history or []
     configured = [
         provider for provider in PROVIDERS
-        if os.environ.get(provider["key_env"])
+        if os.environ.get(provider["key_env"], "").strip()
     ]
 
     if not configured:
@@ -151,4 +169,13 @@ def generate_answer(prompt, history=None):
     raise ProviderUnavailable(
         "Все настроенные AI-провайдеры временно недоступны. "
         + " ".join(errors)
+    )
+
+
+def configured_provider_names():
+    """Return provider names only; never return or log credential values."""
+    return tuple(
+        provider["name"]
+        for provider in PROVIDERS
+        if os.environ.get(provider["key_env"], "").strip()
     )
