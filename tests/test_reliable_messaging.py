@@ -1704,6 +1704,11 @@ class FakeStore:
     def complete_inbox(self, *args):
         self.completed.append(args)
 
+    def save_transcription(self, *args):
+        self.transcriptions = getattr(self, "transcriptions", [])
+        self.transcriptions.append(args)
+        return True
+
     def retry_inbox(self, *args):
         self.retries.append(args)
 
@@ -1833,3 +1838,173 @@ def test_outbox_stale_recovery_race_does_not_duplicate_send(monkeypatch):
     assert sends == [(22, "reply")]
     assert db.status == "sent"
     assert db.claim_token is None
+
+
+def test_voice_message_is_transcribed_and_uses_existing_message_pipeline(monkeypatch):
+    generated = []
+    downloaded = []
+    monkeypatch.setattr(bridge, "_download_voice_file", lambda file_id, destination, declared_size=None: downloaded.append(file_id))
+    monkeypatch.setattr(bridge, "transcribe_audio", lambda path: "привет, сделай отчёт")
+    monkeypatch.setattr(core, "generate_answer", lambda text, history: generated.append(text) or "Ответ")
+    store = FakeStore()
+    update = {
+        "update_id": 81,
+        "message": {
+            "from": {"id": bridge.ALLOWED_USER_ID},
+            "chat": {"id": 22},
+            "voice": {"file_id": "voice-id", "duration": 8, "file_size": 1024, "mime_type": "audio/ogg"},
+        },
+    }
+
+    bridge.process_inbox_item(store, InboxItemForTest(update))
+
+    assert downloaded == ["voice-id"]
+    assert generated == ["привет, сделай отчёт"]
+    assert store.transcriptions[0][0:3] == (81, 22, "привет, сделай отчёт")
+    assert len(store.completed) == 1
+
+
+def test_cached_voice_transcription_skips_download_and_model(monkeypatch):
+    monkeypatch.setattr(bridge, "_download_voice_file", lambda *args: pytest.fail("cached audio must not download"))
+    monkeypatch.setattr(bridge, "transcribe_audio", lambda *args: pytest.fail("cached audio must not transcribe"))
+    monkeypatch.setattr(core, "generate_answer", lambda text, history: text)
+    store = FakeStore()
+    update = {
+        "update_id": 82,
+        "_klodd": {"transcription": "cached text"},
+        "message": {"from": {"id": bridge.ALLOWED_USER_ID}, "chat": {"id": 22}, "voice": {"file_id": "voice-id"}},
+    }
+
+    bridge.process_inbox_item(store, InboxItemForTest(update))
+
+    assert not getattr(store, "transcriptions", [])
+    assert len(store.completed) == 1
+
+
+def test_oversized_voice_is_terminal_without_download(monkeypatch):
+    monkeypatch.setattr(bridge, "_download_voice_file", lambda *args: pytest.fail("oversized voice must not download"))
+    store = FakeStore()
+    update = {
+        "update_id": 83,
+        "message": {
+            "from": {"id": bridge.ALLOWED_USER_ID}, "chat": {"id": 22},
+            "voice": {"file_id": "voice-id", "duration": 8, "file_size": bridge.MAX_VOICE_BYTES + 1},
+        },
+    }
+
+    bridge.process_inbox_item(store, InboxItemForTest(update))
+
+    assert store.permanent[0][0] == 83
+    assert not store.retries
+
+
+def test_temporary_local_stt_error_is_retried(monkeypatch):
+    from assistant.stt import STTUnavailable
+
+    monkeypatch.setattr(bridge, "_download_voice_file", lambda *args: None)
+    monkeypatch.setattr(bridge, "transcribe_audio", lambda *args: (_ for _ in ()).throw(STTUnavailable("safe")))
+    store = FakeStore()
+    update = {
+        "update_id": 84,
+        "message": {
+            "from": {"id": bridge.ALLOWED_USER_ID}, "chat": {"id": 22},
+            "voice": {"file_id": "voice-id", "duration": 8},
+        },
+    }
+
+    bridge.process_inbox_item(store, InboxItemForTest(update))
+
+    assert store.retries[0][0] == 84
+    assert not store.completed
+    assert not store.permanent
+
+
+def test_regular_text_message_does_not_use_stt(monkeypatch):
+    monkeypatch.setattr(bridge, "transcribe_audio", lambda *args: pytest.fail("text messages must bypass STT"))
+    monkeypatch.setattr(core, "generate_answer", lambda text, history: "Ответ")
+    store = FakeStore()
+    update = {"update_id": 85, "message": {"from": {"id": bridge.ALLOWED_USER_ID}, "chat": {"id": 22}, "text": "hello"}}
+
+    bridge.process_inbox_item(store, InboxItemForTest(update))
+
+    assert not getattr(store, "transcriptions", [])
+    assert len(store.completed) == 1
+
+
+def test_save_transcription_is_fenced_by_claim_and_generation():
+    class Cursor:
+        def __init__(self):
+            self.statements = []
+            self.results = [(91,)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, query, params=None):
+            self.statements.append((query, params))
+
+        def fetchone(self):
+            return self.results.pop(0)
+
+    class Connection:
+        def __init__(self):
+            self.db_cursor = Cursor()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def cursor(self):
+            return self.db_cursor
+
+    connection = Connection()
+    store = PostgresStore(connect=lambda: connection)
+    token = uuid.uuid4()
+
+    assert store.save_transcription(91, 22, "recognized", token, 3) is True
+
+    update_sql, update_params = connection.db_cursor.statements[0]
+    insert_sql, insert_params = connection.db_cursor.statements[1]
+    assert "claim_token = %s AND generation = %s" in update_sql
+    assert "jsonb_set" in update_sql and "transcription" in update_sql
+    assert update_params == ("recognized", 91, token, 3)
+    assert "INSERT INTO messages" in insert_sql
+    assert insert_params == (22, 91, "recognized")
+
+
+def test_save_transcription_does_not_write_history_when_claim_is_stale():
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, query, params=None):
+            self.query = query
+
+        def fetchone(self):
+            return None
+
+    class Connection:
+        def __init__(self):
+            self.db_cursor = Cursor()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def cursor(self):
+            return self.db_cursor
+
+    connection = Connection()
+    store = PostgresStore(connect=lambda: connection)
+    assert store.save_transcription(92, 22, "recognized", uuid.uuid4(), 0) is False
+    assert "UPDATE inbox" in connection.db_cursor.query

@@ -333,6 +333,34 @@ class PostgresStore:
                 cursor.execute("UPDATE bot_state SET last_update_at = now() WHERE singleton = TRUE")
         return inserted
 
+    def save_transcription(
+        self, update_id: int, chat_id: int, transcript: str,
+        claim_token: uuid.UUID, generation: int = 0,
+    ) -> bool:
+        """Cache a voice transcript and add it to history under the active claim."""
+        with self._db() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """UPDATE inbox
+                   SET payload = jsonb_set(
+                       payload, '{_klodd}',
+                       COALESCE(payload -> '_klodd', '{}'::jsonb)
+                           || jsonb_build_object('transcription', %s::text),
+                       true)
+                   WHERE update_id = %s AND status = 'processing'
+                     AND claim_token = %s AND generation = %s
+                   RETURNING update_id""",
+                (transcript, update_id, claim_token, generation),
+            )
+            if cursor.fetchone() is None:
+                return False
+            cursor.execute(
+                """INSERT INTO messages (chat_id, update_id, role, content, route)
+                   VALUES (%s, %s, 'user', %s, NULL)
+                   ON CONFLICT (update_id, role) DO UPDATE SET content = EXCLUDED.content""",
+                (chat_id, update_id, transcript),
+            )
+            return True
+
     def recover_processing(self) -> None:
         with self._db() as connection, connection.cursor() as cursor:
             cursor.execute(
