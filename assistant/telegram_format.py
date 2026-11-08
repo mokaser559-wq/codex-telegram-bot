@@ -113,13 +113,15 @@ def markdown_to_telegram_html(text: str) -> str:
             index += 2
             while index < len(lines) and "|" in lines[index] and lines[index].strip():
                 cells = _table_cells(lines[index])
-                parts = []
-                for column, value in enumerate(cells):
-                    if value:
-                        label = headers[column] if column < len(headers) else f"Поле {column + 1}"
-                        parts.append(f"<b>{_inline(label)}</b>: {_inline(value)}")
-                if parts:
-                    rendered.append("• " + "; ".join(parts))
+                if cells:
+                    aspect = cells[0]
+                    parts = [f"<b>{_inline(aspect)}</b>"] if aspect else []
+                    for column, value in enumerate(cells[1:], start=1):
+                        if value:
+                            label = headers[column] if column < len(headers) else f"Поле {column + 1}"
+                            parts.append(f"• <b>{_inline(label)}:</b> {_inline(value)}")
+                    if parts:
+                        rendered.append("\\n".join(parts))
                 index += 1
             continue
 
