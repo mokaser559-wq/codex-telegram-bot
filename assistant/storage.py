@@ -339,7 +339,7 @@ class PostgresStore:
 
     def save_transcription(
         self, update_id: int, chat_id: int, transcript: str,
-        claim_token: uuid.UUID, generation: int = 0,
+        claim_token: uuid.UUID, generation: int = 0, raw_transcript: str | None = None,
     ) -> bool:
         """Cache a voice transcript and add it to history under the active claim."""
         with self._db() as connection, connection.cursor() as cursor:
@@ -348,12 +348,16 @@ class PostgresStore:
                    SET payload = jsonb_set(
                        payload, '{_klodd}',
                        COALESCE(payload -> '_klodd', '{}'::jsonb)
-                           || jsonb_build_object('transcription', %s::text),
+                           || jsonb_build_object(
+                               'transcription', %s::text,
+                               'raw_transcription', %s::text
+                           ),
                        true)
                    WHERE update_id = %s AND status = 'processing'
                      AND claim_token = %s AND generation = %s
                    RETURNING update_id""",
-                (transcript, update_id, claim_token, generation),
+                (transcript, raw_transcript if raw_transcript is not None else transcript,
+                 update_id, claim_token, generation),
             )
             if cursor.fetchone() is None:
                 return False
