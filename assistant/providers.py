@@ -218,9 +218,15 @@ def correct_transcription(transcript, history=None):
         if isinstance(item, dict) and isinstance(item.get("text"), str)
     )
     assistant_context = re.search(r"(?i)\bКлодд\b", history_text)
+    user_history_text = " ".join(
+        item.get("text", "")
+        for item in (history or [])
+        if isinstance(item, dict) and item.get("role") == "user"
+        and isinstance(item.get("text"), str)
+    )
     technical_context = re.search(
         r"(?i)\b(?:облачн\w*|сервер\w*|хранилищ\w*|AWS|Azure|IaaS|PaaS|SaaS)\b",
-        " ".join((transcript, corrected, history_text)),
+        " ".join((transcript, corrected, user_history_text)),
     )
     if (assistant_context and not technical_context
             and re.search(r"(?i)\bпро\s+клоуд[ауые]\b", transcript)):
