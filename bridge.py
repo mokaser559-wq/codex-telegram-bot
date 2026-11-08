@@ -22,6 +22,7 @@ from assistant.providers import (
     ProviderError,
     ProviderUnavailable,
     configured_provider_names,
+    correct_transcription,
 )
 from assistant.router import route_message
 from assistant.stt import STTConfigurationError, STTUnavailable, STTUnsupported, transcribe_audio
@@ -354,7 +355,7 @@ def _download_voice_file(file_id, destination, declared_size=None):
         raise STTUnsupported("empty_voice_file")
 
 
-def _voice_transcription(store, item, message, chat_id):
+def _voice_transcription(store, item, message, chat_id, history=None):
     internal = item.payload.get("_klodd") or {}
     cached = internal.get("transcription") if isinstance(internal, dict) else None
     if isinstance(cached, str) and cached.strip():
@@ -376,9 +377,24 @@ def _voice_transcription(store, item, message, chat_id):
     with tempfile.TemporaryDirectory(prefix="klodd-voice-") as directory:
         audio_path = Path(directory) / "voice.ogg"
         _download_voice_file(file_id, audio_path, voice.get("file_size"))
-        transcript = transcribe_audio(audio_path)
+        raw_transcript = transcribe_audio(audio_path)
+
+    transcript = raw_transcript
+    try:
+        corrected = correct_transcription(raw_transcript, history)
+        if isinstance(corrected, str) and corrected.strip():
+            transcript = corrected.strip()
+        else:
+            LOG.warning("AI transcript correction returned empty text for update %s", item.update_id)
+    except ProviderError as exc:
+        LOG.warning(
+            "AI transcript correction unavailable for update %s (%s); using raw transcript",
+            item.update_id, type(exc).__name__,
+        )
+
     if not store.save_transcription(
         item.update_id, chat_id, transcript, item.claim_token, item.generation,
+        raw_transcript=raw_transcript,
     ):
         return None
     return transcript
@@ -690,13 +706,13 @@ def process_inbox_item(store, item, mode="polling"):
         return
 
     try:
+        history = store.history(chat_id, item.update_id, MEMORY_LIMIT)
         if is_voice and not (isinstance(text, str) and text.strip()):
-            text = _voice_transcription(store, item, message, chat_id)
+            text = _voice_transcription(store, item, message, chat_id, history)
             if text is None:
                 return
         text = text.strip()
         route = route_message(text)
-        history = store.history(chat_id, item.update_id, MEMORY_LIMIT)
 
         def requeue_handler(kind, item_id):
             changed = store.requeue_dead_letter(
