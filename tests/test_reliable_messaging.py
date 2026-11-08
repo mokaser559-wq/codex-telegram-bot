@@ -1972,7 +1972,7 @@ def test_save_transcription_is_fenced_by_claim_and_generation():
     insert_sql, insert_params = connection.db_cursor.statements[1]
     assert "claim_token = %s AND generation = %s" in update_sql
     assert "jsonb_set" in update_sql and "transcription" in update_sql
-    assert update_params == ("recognized", 91, token, 3)
+    assert update_params == ("recognized", "recognized", 91, token, 3)
     assert "INSERT INTO messages" in insert_sql
     assert insert_params == (22, 91, "recognized")
 
