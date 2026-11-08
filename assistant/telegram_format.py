@@ -26,6 +26,7 @@ _HTML_ENTITY = re.compile(r"&(?:lt|gt|amp|quot|#\d+|#x[0-9a-fA-F]+);\Z")
 _SIMPLE_TAGS = {"b", "i", "s", "code", "pre"}
 _ANCHOR_HREF = re.compile(r'\s+href="([^"]*)"\s*\Z')
 _NUMERIC_ENTITY = re.compile(r"&#(?P<decimal>\d+|[xX][0-9a-fA-F]+);\Z")
+_TABLE_SEPARATOR = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
 
 
 def _safe_link(url: str) -> bool:
@@ -94,6 +95,16 @@ def _inline(text: str, depth: int = 0) -> str:
     return "".join(output)
 
 
+def _table_cells(line: str) -> list[str]:
+    """Split a Markdown table row into trimmed cells."""
+    value = line.strip()
+    if value.startswith("|"):
+        value = value[1:]
+    if value.endswith("|"):
+        value = value[:-1]
+    return [cell.strip() for cell in value.split("|")]
+
+
 def markdown_to_telegram_html(text: str) -> str:
     """Render common Markdown constructs; escape all unrecognized text."""
     lines = text.split("\n")
@@ -101,6 +112,24 @@ def markdown_to_telegram_html(text: str) -> str:
     index = 0
     while index < len(lines):
         line = lines[index]
+        if ("|" in line and index + 1 < len(lines)
+                and _TABLE_SEPARATOR.match(lines[index + 1])):
+            headers = _table_cells(line)
+            index += 2
+            while index < len(lines) and "|" in lines[index] and lines[index].strip():
+                cells = _table_cells(lines[index])
+                label = cells[0] if cells else ""
+                parts = [f"<b>{_inline(label)}</b>"] if label else []
+                for column, value in enumerate(cells[1:], start=1):
+                    if not value:
+                        continue
+                    header = headers[column] if column < len(headers) and headers[column] else f"Поле {column + 1}"
+                    parts.append(f"• <b>{_inline(header)}:</b> {_inline(value)}")
+                if parts:
+                    rendered.append("\n".join(parts))
+                index += 1
+            continue
+
         if _FENCE.match(line):
             end = index + 1
             while end < len(lines) and not _FENCE_END.match(lines[end]):

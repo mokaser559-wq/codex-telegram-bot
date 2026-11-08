@@ -22,8 +22,10 @@ from assistant.providers import (
     ProviderError,
     ProviderUnavailable,
     configured_provider_names,
+    correct_transcription,
 )
 from assistant.router import route_message
+from assistant.stt import STTConfigurationError, STTUnavailable, STTUnsupported, transcribe_audio
 from assistant.storage import (
     PostgresStore,
     StorageConfigurationError,
@@ -284,11 +286,15 @@ def telegram(method, data=None, timeout=40):
         with urllib.request.urlopen(req, timeout=timeout) as response:
             result = json.load(response)
     except urllib.error.HTTPError as exc:
-        if exc.code == 429:
-            raise TelegramTransientError(exc.code, _http_retry_after(exc)) from None
-        if exc.code in (408, 425) or exc.code >= 500:
-            raise TelegramTransientError(exc.code) from None
-        raise TelegramPermanentError(exc.code) from None
+        try:
+            retry_after = _http_retry_after(exc) if exc.code == 429 else None
+            if exc.code == 429:
+                raise TelegramTransientError(exc.code, retry_after) from None
+            if exc.code in (408, 425) or exc.code >= 500:
+                raise TelegramTransientError(exc.code) from None
+            raise TelegramPermanentError(exc.code) from None
+        finally:
+            exc.close()
     except (urllib.error.URLError, TimeoutError, OSError, ValueError):
         raise TelegramTransientError() from None
     if not isinstance(result, dict):
@@ -300,6 +306,112 @@ def telegram(method, data=None, timeout=40):
             raise TelegramTransientError(code, _positive_int(parameters.get("retry_after")))
         raise TelegramPermanentError(code if isinstance(code, int) else None)
     return result["result"]
+
+
+MAX_VOICE_BYTES = 20 * 1024 * 1024
+MAX_VOICE_DURATION_SECONDS = 300
+
+
+def _download_voice_file(file_id, destination, declared_size=None):
+    if declared_size is not None and (
+        isinstance(declared_size, bool) or not isinstance(declared_size, int)
+        or declared_size < 0 or declared_size > MAX_VOICE_BYTES
+    ):
+        raise STTUnsupported("voice_file_too_large")
+    try:
+        file_info = telegram("getFile", {"file_id": file_id}, timeout=20)
+    except TelegramTransientError:
+        raise STTUnavailable("telegram_get_file_unavailable") from None
+    except TelegramPermanentError:
+        raise STTUnsupported("telegram_file_unavailable") from None
+    file_path = file_info.get("file_path") if isinstance(file_info, dict) else None
+    remote_size = file_info.get("file_size") if isinstance(file_info, dict) else None
+    if not isinstance(file_path, str) or not file_path or ".." in Path(file_path).parts:
+        raise STTUnsupported("invalid_telegram_file_path")
+    if remote_size is not None and (
+        isinstance(remote_size, bool)
+        or not isinstance(remote_size, int)
+        or remote_size < 0
+        or remote_size > MAX_VOICE_BYTES
+    ):
+        raise STTUnsupported("voice_file_too_large")
+
+    file_api = API.replace("https://api.telegram.org/bot", "https://api.telegram.org/file/bot", 1)
+    url = file_api + "/" + urllib.parse.quote(file_path, safe="/")
+    request = urllib.request.Request(url)
+    total = 0
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response, open(destination, "wb") as output:
+            length = _positive_int(response.headers.get("Content-Length"))
+            if length is not None and length > MAX_VOICE_BYTES:
+                raise STTUnsupported("voice_file_too_large")
+            while True:
+                chunk = response.read(64 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_VOICE_BYTES:
+                    raise STTUnsupported("voice_file_too_large")
+                output.write(chunk)
+    except STTUnsupported:
+        raise
+    except urllib.error.HTTPError as exc:
+        exc.close()
+        if exc.code in (408, 425, 429) or exc.code >= 500:
+            raise STTUnavailable("telegram_download_unavailable") from None
+        raise STTUnsupported("telegram_download_rejected") from None
+    except (urllib.error.URLError, TimeoutError, OSError):
+        raise STTUnavailable("telegram_download_unavailable") from None
+    if total == 0:
+        raise STTUnsupported("empty_voice_file")
+
+
+def _voice_transcription(store, item, message, chat_id, history=None):
+    internal = item.payload.get("_klodd") or {}
+    cached = internal.get("transcription") if isinstance(internal, dict) else None
+    if isinstance(cached, str) and cached.strip():
+        raw = internal.get("raw_transcription")
+        if not isinstance(raw, str) or not raw.strip():
+            raw = cached
+        if not store.save_transcription(
+            item.update_id, chat_id, cached.strip(), item.claim_token,
+            item.generation, raw_transcript=raw,
+        ):
+            return None
+        return cached.strip()
+
+    voice = message.get("voice")
+    if not isinstance(voice, dict):
+        raise STTUnsupported("voice_metadata_missing")
+    duration = voice.get("duration")
+    if (
+        isinstance(duration, bool)
+        or not isinstance(duration, int)
+        or not 1 <= duration <= MAX_VOICE_DURATION_SECONDS
+    ):
+        raise STTUnsupported("invalid_voice_duration")
+    declared_size = voice.get("file_size")
+    if isinstance(declared_size, int) and declared_size > MAX_VOICE_BYTES:
+        raise STTUnsupported("voice_file_too_large")
+    file_id = voice.get("file_id")
+    if not isinstance(file_id, str) or not file_id:
+        raise STTUnsupported("voice_file_id_missing")
+
+    with tempfile.TemporaryDirectory(prefix="klodd-voice-") as directory:
+        audio_path = Path(directory) / "voice.ogg"
+        _download_voice_file(file_id, audio_path, declared_size)
+        raw_transcript = transcribe_audio(audio_path)
+    transcript = correct_transcription(raw_transcript, history)
+    if not isinstance(transcript, str) or not transcript.strip():
+        transcript = raw_transcript
+    else:
+        transcript = transcript.strip()
+    if not store.save_transcription(
+        item.update_id, chat_id, transcript, item.claim_token,
+        item.generation, raw_transcript=raw_transcript,
+    ):
+        return None
+    return transcript
 
 
 def send(chat_id, text):
@@ -598,14 +710,20 @@ def process_inbox_item(store, item, mode="polling"):
     sender = message.get("from") or {}
     chat_id = (message.get("chat") or {}).get("id")
     text = message.get("text")
-    if sender.get("id") != ALLOWED_USER_ID or not isinstance(text, str) or not chat_id or not text.strip():
+    is_voice = isinstance(message.get("voice"), dict)
+    if sender.get("id") != ALLOWED_USER_ID or not chat_id or not (
+        (isinstance(text, str) and text.strip()) or is_voice
+    ):
         store.ignore_inbox(item.update_id, item.claim_token)
         return
-    text = text.strip()
-
-    route = route_message(text)
     try:
         history = store.history(chat_id, item.update_id, MEMORY_LIMIT)
+        if is_voice and not (isinstance(text, str) and text.strip()):
+            text = _voice_transcription(store, item, message, chat_id, history)
+            if text is None:
+                return
+        text = text.strip()
+        route = route_message(text)
 
         def requeue_handler(kind, item_id):
             if kind == "inbox":
@@ -638,6 +756,25 @@ def process_inbox_item(store, item, mode="polling"):
             requeue_handler=requeue_handler,
         )
         store.complete_inbox(item.update_id, chat_id, route, answer, item.claim_token, item.generation)
+    except STTUnsupported:
+        store.permanent_inbox_error(
+            item.update_id, chat_id,
+            "Не удалось распознать голосовое сообщение. Попробуй отправить более короткую запись в формате голосового сообщения Telegram.",
+            "voice_unsupported", item.claim_token, item.generation,
+        )
+    except STTConfigurationError:
+        store.permanent_inbox_error(
+            item.update_id, chat_id,
+            "Распознавание голоса сейчас не настроено. Сообщение сохранено.",
+            "stt_not_configured", item.claim_token, item.generation,
+        )
+    except STTUnavailable as exc:
+        terminal = "Не удалось распознать голос после повторных попыток. Сообщение сохранено для разбора."
+        store.retry_inbox(
+            item.update_id, item.attempts, type(exc).__name__, item.claim_token,
+            terminal, chat_id, item.generation,
+        )
+        LOG.warning("Speech recognition temporarily unavailable for update %s", item.update_id)
     except NoProviderConfigured:
         store.permanent_inbox_error(
             item.update_id, chat_id,
