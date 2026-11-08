@@ -212,6 +212,24 @@ def correct_transcription(transcript, history=None):
         system_prompt=system_prompt,
         temperature=0.1,
     )
+    history_text = " ".join(
+        item.get("text", "")
+        for item in (history or [])
+        if isinstance(item, dict) and isinstance(item.get("text"), str)
+    )
+    assistant_context = re.search(r"(?i)\bКлодд\b", history_text)
+    technical_context = re.search(
+        r"(?i)\b(?:облачн\w*|сервер\w*|хранилищ\w*|AWS|Azure|IaaS|PaaS|SaaS)\b",
+        " ".join((transcript, corrected, history_text)),
+    )
+    if (assistant_context and not technical_context
+            and re.search(r"(?i)\bпро\s+клоуд[ауые]\b", transcript)):
+        corrected = re.sub(
+            r"(?i)(\bпро\s+)(?:облако|облака|облаку|облаке|клоуд[ауые])\b",
+            lambda match: match.group(1) + "Клодда",
+            corrected,
+            count=1,
+        )
     if re.search(r"(?i)\bкто\s+такой\s+клоунт\b", transcript):
         corrected = re.sub(
             r"(?i)(\bкто\s+такой\s+)клоун\b",
