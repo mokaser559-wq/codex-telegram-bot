@@ -30,7 +30,7 @@ class STTConfigurationError(STTError):
     """The local STT runtime or model is missing."""
 
 
-MODEL_PATH = Path(os.environ.get("WHISPER_MODEL_PATH", "/opt/whisper/models/ggml-tiny-q5_1.bin"))
+MODEL_PATH = Path(os.environ.get("WHISPER_MODEL_PATH", "/opt/whisper/models/ggml-base-q5_1.bin"))
 WHISPER_BIN = os.environ.get("WHISPER_BIN", "/usr/local/bin/whisper-cli")
 FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
 
