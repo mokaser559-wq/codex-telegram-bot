@@ -163,3 +163,20 @@ def test_garbled_exam_phrase_is_repaired_before_ai_call(monkeypatch):
 
     assert "подготовиться к экзаменам, составить" in captured["prompt"]
     assert "как за именем состав" not in captured["prompt"]
+
+
+def test_garbled_exam_phrase_is_repaired_when_ai_provider_fails(monkeypatch):
+    def fail_generate_answer(*args, **kwargs):
+        raise providers.ProviderError("temporary provider failure")
+
+    monkeypatch.setattr(providers, "generate_answer", fail_generate_answer)
+
+    result = providers.correct_transcription(
+        "Клодд, я хочу подготовиться как за именем состав, "
+        "план занятий на неделю."
+    )
+
+    assert result == (
+        "Клодд, я хочу подготовиться к экзаменам, составить "
+        "план занятий на неделю."
+    )
