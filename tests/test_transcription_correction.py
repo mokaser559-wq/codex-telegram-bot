@@ -25,3 +25,29 @@ def test_correct_transcription_uses_context_and_conservative_prompt(monkeypatch)
     assert "имя личного ассистента" in captured["system_prompt"]
     assert "«Клодд»" in captured["system_prompt"]
     assert "обычное слово «клоун»" in captured["system_prompt"]
+
+
+
+def test_correction_prompt_distinguishes_assistant_name_from_clown():
+    captured = {}
+
+    def fake_generate_answer(prompt, history, **kwargs):
+        captured.update(kwargs)
+        return "Сегодня я говорил про Клодда своему другу."
+
+    monkeypatch = __import__("pytest").MonkeyPatch()
+    try:
+        monkeypatch.setattr(providers, "generate_answer", fake_generate_answer)
+        result = providers.correct_transcription(
+            "Сегодня я говорил про клоуна своему другу.",
+            [{"role": "assistant", "text": "Я твой личный ассистент Клодд."}],
+        )
+    finally:
+        monkeypatch.undo()
+
+    assert result == "Сегодня я говорил про Клодда своему другу."
+    prompt = captured["system_prompt"]
+    assert "говорил про Клодда" in prompt
+    assert "видео про Клодда" in prompt
+    assert "кто такой клоун" in prompt
+    assert "Если контекст допускает оба смысла" in prompt
