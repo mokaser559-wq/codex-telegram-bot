@@ -121,7 +121,7 @@ def markdown_to_telegram_html(text: str) -> str:
                             label = headers[column] if column < len(headers) else f"Поле {column + 1}"
                             parts.append(f"• <b>{_inline(label)}:</b> {_inline(value)}")
                     if parts:
-                        rendered.append("\\n".join(parts))
+                        rendered.append("\n".join(parts))
                 index += 1
             continue
 
