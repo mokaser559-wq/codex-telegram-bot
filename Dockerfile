@@ -24,4 +24,5 @@ WORKDIR /home/node/app
 COPY --chown=node:node bridge.py start.sh stt-diagnostics.sh ./
 COPY --chown=node:node assistant ./assistant
 COPY --chown=node:node migrations ./migrations
-CMD ["sh", "stt-diagnostics.sh"]
+COPY --chown=node:node stt-test-server.py ./
+CMD ["python3", "stt-test-server.py"]
