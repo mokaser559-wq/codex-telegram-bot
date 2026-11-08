@@ -47,3 +47,28 @@ def test_correction_prompt_distinguishes_assistant_name_from_clown(monkeypatch):
     assert "видео про Клодда" in prompt
     assert "кто такой клоун" in prompt
     assert "Если контекст допускает оба смысла" in prompt
+
+
+
+def test_distinctive_kloount_misrecognition_restores_klodd(monkeypatch):
+    monkeypatch.setattr(
+        providers,
+        "generate_answer",
+        lambda *args, **kwargs: "Расскажи, кто такой клоун?",
+    )
+
+    result = providers.correct_transcription("Раскаживай кто такой клоунт")
+
+    assert result == "Расскажи, кто такой Клодд?"
+
+
+def test_real_clown_word_is_not_changed_by_name_fallback(monkeypatch):
+    monkeypatch.setattr(
+        providers,
+        "generate_answer",
+        lambda *args, **kwargs: "Расскажи, кто такой клоун?",
+    )
+
+    result = providers.correct_transcription("Расскажи, кто такой клоун")
+
+    assert result == "Расскажи, кто такой клоун?"
