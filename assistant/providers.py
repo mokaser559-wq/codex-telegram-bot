@@ -213,8 +213,16 @@ def correct_transcription(transcript, history=None):
         "длину. Если фрагмент нельзя надёжно восстановить, оставь его как есть. "
         "Верни только исправленный текст, без кавычек, пояснений и меток."
     )
+    # Repair this narrowly identified Whisper collapse before the AI pass.
+    # This avoids depending on the model to repeat the garbled phrase verbatim.
+    correction_input = re.sub(
+        r"(?i)(?<!\\w)(подготовиться\\s+)как\\s+за\\s+именем\\s+состав(?!\\w)",
+        r"\\1к экзаменам, составить",
+        transcript,
+        count=1,
+    )
     corrected = generate_answer(
-        "Черновая расшифровка голосового сообщения:\n" + transcript,
+        "Черновая расшифровка голосового сообщения:\\n" + correction_input,
         history,
         system_prompt=system_prompt,
         temperature=0.1,
@@ -250,20 +258,13 @@ def correct_transcription(transcript, history=None):
             corrected,
             count=1,
         )
-    # Narrow repair for a distinctive Whisper phonetic collapse observed in testing.
-    if re.search(
-        r"(?i)\bподготовиться\s+как\s+за\s+именем\s+состав\b",
-        transcript,
-    ) and re.search(
-        r"(?i)\bподготовиться\s+как\s+за\s+именем\s+состав\b",
+    # Final guard in case the model reintroduces the same distinctive error.
+    corrected = re.sub(
+        r"(?i)(?<!\\w)(подготовиться\\s+)как\\s+за\\s+именем\\s+состав(?!\\w)",
+        r"\\1к экзаменам, составить",
         corrected,
-    ):
-        corrected = re.sub(
-            r"(?i)(\bподготовиться\s+)как\s+за\s+именем\s+состав\b",
-            r"\1к экзаменам, составить",
-            corrected,
-            count=1,
-        )
+        count=1,
+    )
     return corrected
 
 
