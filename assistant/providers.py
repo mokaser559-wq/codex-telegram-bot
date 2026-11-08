@@ -221,12 +221,17 @@ def correct_transcription(transcript, history=None):
         transcript,
         count=1,
     )
-    corrected = generate_answer(
-        "Черновая расшифровка голосового сообщения:\n" + correction_input,
-        history,
-        system_prompt=system_prompt,
-        temperature=0.1,
-    )
+    try:
+        corrected = generate_answer(
+            "Черновая расшифровка голосового сообщения:\n" + correction_input,
+            history,
+            system_prompt=system_prompt,
+            temperature=0.1,
+        )
+    except ProviderError:
+        # Keep the narrow deterministic repair even when the AI correction
+        # provider is unavailable; leave every other uncertain word untouched.
+        return correction_input
     history_text = " ".join(
         item.get("text", "")
         for item in (history or [])
