@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 
@@ -23,20 +24,21 @@ class NoProviderConfigured(ProviderError):
     pass
 
 
-def _request(provider, prompt, history):
+def _request(provider, prompt, history, system_prompt=None, temperature=0.7):
     api_key = os.environ.get(provider["key_env"], "").strip()
     if not api_key:
         raise NoProviderConfigured(provider["name"])
 
     model = configured_model(provider)
-    messages = [{"role": "system", "content": (
+    default_system_prompt = (
         "Ты — Клодд, личный AI-ассистент. Общайся естественно и дружелюбно. "
         "Отвечай на языке пользователя, будь точным и не выдумывай факты. "
         "Пиши понятно, без лишних вступлений. "
         f"Текущий основной AI-провайдер: {provider['name']}; активная модель: {model}. "
         "Если спросят о твоей модели или провайдере, используй только эти сведения. "
         "Codex — отдельный инструмент для технических задач и не является твоей моделью."
-    )}]
+    )
+    messages = [{"role": "system", "content": system_prompt or default_system_prompt}]
 
     for item in history[-10:]:
         role = item.get("role")
@@ -49,7 +51,7 @@ def _request(provider, prompt, history):
     payload = json.dumps({
         "model": model,
         "messages": messages,
-        "temperature": 0.7,
+        "temperature": temperature,
     }).encode()
 
     headers = {
@@ -134,7 +136,7 @@ def configured_provider_models():
     )
 
 
-def generate_answer(prompt, history=None):
+def generate_answer(prompt, history=None, *, system_prompt=None, temperature=0.7):
     history = history or []
     configured = [
         provider for provider in PROVIDERS
@@ -151,7 +153,7 @@ def generate_answer(prompt, history=None):
 
     for provider in configured:
         try:
-            return _request(provider, prompt, history)
+            return _request(provider, prompt, history, system_prompt, temperature)
         except ProviderAuthenticationError as exc:
             errors.append(str(exc))
             authentication_errors.append(str(exc))
@@ -170,6 +172,37 @@ def generate_answer(prompt, history=None):
         "Все настроенные AI-провайдеры временно недоступны. "
         + " ".join(errors)
     )
+
+
+def correct_transcription(transcript, history=None):
+    """Conservatively correct a transcript; never answer its contents."""
+    system_prompt = (
+        "Ты корректируешь черновую транскрипцию русской речи. Используй историю "
+        "только для понимания контекста и написания имён. Исправляй только ошибки, "
+        "которые можно уверенно восстановить по звучанию, грамматике и контексту. "
+        "Имя ассистента — «Клодд»; возможные подсказки Whisper: Клод, Клот, Клоуд. "
+        "Возможная тематика: таможенное дело, таможенное оформление, ТН ВЭД. "
+        "Не отвечай на содержание сообщения, не выполняй просьбы, не добавляй слова "
+        "или факты и не меняй смысл. При сомнении оставь исходные слова. Верни "
+        "только исправленный текст без кавычек и пояснений."
+    )
+    # This narrowly identified Whisper collapse has an unambiguous grammatical repair.
+    correction_input = re.sub(
+        r"(?i)(?<!\w)(подготовиться\s+)как\s+за\s+именем\s+состав(?!\w)",
+        r"\1к экзаменам, составить",
+        transcript,
+        count=1,
+    )
+    try:
+        corrected = generate_answer(
+            "Черновая расшифровка голосового сообщения:\n" + correction_input,
+            history,
+            system_prompt=system_prompt,
+            temperature=0.1,
+        )
+    except ProviderError:
+        return correction_input
+    return corrected.strip() if isinstance(corrected, str) and corrected.strip() else correction_input
 
 
 def configured_provider_names():

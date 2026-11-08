@@ -64,6 +64,40 @@ def test_plain_text_html_symbols_and_quotes_are_always_escaped():
     )
 
 
+def test_markdown_table_becomes_readable_html_with_alignment_and_empty_cells():
+    source = (
+        "До таблицы\n"
+        "| День | Тема | Примечание |\n"
+        "|:---|---:|:---:|\n"
+        "| Пн | **ТН ВЭД** |  |\n"
+        "| Вт | Оформление | практика |\n"
+        "После таблицы"
+    )
+
+    rendered = markdown_to_telegram_html(source)
+
+    assert rendered == (
+        "До таблицы\n"
+        "<b>Пн</b>\n• <b>Тема:</b> <b>ТН ВЭД</b>\n"
+        "<b>Вт</b>\n• <b>Тема:</b> Оформление\n• <b>Примечание:</b> практика\n"
+        "После таблицы"
+    )
+
+
+def test_markdown_table_inside_fenced_code_remains_literal_code():
+    source = (
+        "```markdown\n"
+        "| День | Тема |\n"
+        "|---|---|\n"
+        "| Пн | ТН ВЭД |\n"
+        "```"
+    )
+
+    assert markdown_to_telegram_html(source) == (
+        "<pre><code>| День | Тема |\n|---|---|\n| Пн | ТН ВЭД |</code></pre>"
+    )
+
+
 @pytest.mark.parametrize(
     "source",
     (
