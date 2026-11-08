@@ -168,17 +168,21 @@ class PostgresStore:
                     return
 
         try:
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT pg_try_advisory_lock(%s)", (POLL_LOCK_ID,))
-                acquired = bool(cursor.fetchone()[0])
+            while not stop_event.is_set():
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_try_advisory_lock(%s)", (POLL_LOCK_ID,))
+                    acquired = bool(cursor.fetchone()[0])
+                    if acquired:
+                        cursor.execute(
+                            "SELECT pg_backend_pid(), backend_start FROM pg_stat_activity WHERE pid = pg_backend_pid()"
+                        )
+                        lock_backend_pid, lock_backend_start = cursor.fetchone()
+                connection.commit()
                 if acquired:
-                    cursor.execute(
-                        "SELECT pg_backend_pid(), backend_start FROM pg_stat_activity WHERE pid = pg_backend_pid()"
-                    )
-                    lock_backend_pid, lock_backend_start = cursor.fetchone()
-            connection.commit()
+                    break
+                stop_event.wait(2)
             if not acquired:
-                raise StorageConfigurationError("Другой polling-процесс уже запущен")
+                raise StorageUnavailable("polling_lock_wait_interrupted")
             self._poll_lock_backend_pid = lock_backend_pid
             self._poll_lock_backend_start = lock_backend_start
             self._poll_lock_lost = lock_lost
@@ -191,7 +195,7 @@ class PostgresStore:
                 # Do not close/release the lock connection while its watchdog
                 # may still be checking ownership on a separate connection.
                 watcher.join()
-        except StorageConfigurationError:
+        except (StorageConfigurationError, StorageTransientError):
             raise
         except Exception as exc:
             self._raise_db_error(exc)
@@ -332,6 +336,38 @@ class PostgresStore:
             if inserted:
                 cursor.execute("UPDATE bot_state SET last_update_at = now() WHERE singleton = TRUE")
         return inserted
+
+    def save_transcription(
+        self, update_id: int, chat_id: int, transcript: str,
+        claim_token: uuid.UUID, generation: int = 0, raw_transcript: str | None = None,
+    ) -> bool:
+        """Cache a voice transcript and add it to history under the active claim."""
+        with self._db() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """UPDATE inbox
+                   SET payload = jsonb_set(
+                       payload, '{_klodd}',
+                       COALESCE(payload -> '_klodd', '{}'::jsonb)
+                           || jsonb_build_object(
+                               'transcription', %s::text,
+                               'raw_transcription', %s::text
+                           ),
+                       true)
+                   WHERE update_id = %s AND status = 'processing'
+                     AND claim_token = %s AND generation = %s
+                   RETURNING update_id""",
+                (transcript, raw_transcript if raw_transcript is not None else transcript,
+                 update_id, claim_token, generation),
+            )
+            if cursor.fetchone() is None:
+                return False
+            cursor.execute(
+                """INSERT INTO messages (chat_id, update_id, role, content, route)
+                   VALUES (%s, %s, 'user', %s, NULL)
+                   ON CONFLICT (update_id, role) DO UPDATE SET content = EXCLUDED.content""",
+                (chat_id, update_id, transcript),
+            )
+            return True
 
     def recover_processing(self) -> None:
         with self._db() as connection, connection.cursor() as cursor:
