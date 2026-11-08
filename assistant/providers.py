@@ -216,13 +216,13 @@ def correct_transcription(transcript, history=None):
     # Repair this narrowly identified Whisper collapse before the AI pass.
     # This avoids depending on the model to repeat the garbled phrase verbatim.
     correction_input = re.sub(
-        r"(?i)(?<!\\w)(подготовиться\\s+)как\\s+за\\s+именем\\s+состав(?!\\w)",
-        r"\\1к экзаменам, составить",
+        r"(?i)(?<!\w)(подготовиться\s+)как\s+за\s+именем\s+состав(?!\w)",
+        r"\1к экзаменам, составить",
         transcript,
         count=1,
     )
     corrected = generate_answer(
-        "Черновая расшифровка голосового сообщения:\\n" + correction_input,
+        "Черновая расшифровка голосового сообщения:\n" + correction_input,
         history,
         system_prompt=system_prompt,
         temperature=0.1,
