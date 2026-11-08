@@ -168,7 +168,6 @@ class PostgresStore:
                     return
 
         try:
-            with connection.cursor() as cursor:
             while not stop_event.is_set():
                 with connection.cursor() as cursor:
                     cursor.execute("SELECT pg_try_advisory_lock(%s)", (POLL_LOCK_ID,))
