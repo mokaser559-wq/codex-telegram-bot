@@ -146,3 +146,20 @@ def test_garbled_phrase_recovery_rule_is_in_correction_prompt(monkeypatch):
     assert "грамматически бессмысленный фрагмент" in prompt
     assert "к экзаменам, составить план занятий" in prompt
     assert "не достраивай отсутствующие мысли" in prompt
+
+
+def test_garbled_exam_phrase_is_repaired_before_ai_call(monkeypatch):
+    captured = {}
+
+    def fake_generate_answer(prompt, history, **kwargs):
+        captured["prompt"] = prompt
+        return "План занятий на неделю."
+
+    monkeypatch.setattr(providers, "generate_answer", fake_generate_answer)
+    providers.correct_transcription(
+        "Клодд, я хочу подготовиться как за именем состав, "
+        "план занятий на неделю."
+    )
+
+    assert "подготовиться к экзаменам, составить" in captured["prompt"]
+    assert "как за именем состав" not in captured["prompt"]
