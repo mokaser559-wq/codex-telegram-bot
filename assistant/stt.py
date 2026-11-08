@@ -58,7 +58,7 @@ def transcribe_audio(source: str | Path) -> str:
             result = subprocess.run(
                 [
                     WHISPER_BIN, "-m", str(MODEL_PATH), "-f", str(wav_path),
-                    "-l", "ru", "--prompt", "Клодд", "-nt", "-np", "-t", "1", "-bs", "1",
+                    "-l", "ru", "-nt", "-np", "-t", "1", "-bs", "1",
                     "-otxt", "-of", str(output_base),
                 ],
                 capture_output=True,
