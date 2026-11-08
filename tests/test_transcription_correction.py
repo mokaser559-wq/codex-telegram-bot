@@ -20,5 +20,8 @@ def test_correct_transcription_uses_context_and_conservative_prompt(monkeypatch)
     assert "Клотом омоким мне с утёбой." in captured["prompt"]
     assert captured["history"] == history
     assert captured["temperature"] == 0.1
-    assert "Не добавляй факты" in captured["system_prompt"]
+    assert "Не добавляй" in captured["system_prompt"]
     assert "Верни только исправленный текст" in captured["system_prompt"]
+    assert "имя личного ассистента" in captured["system_prompt"]
+    assert "«Клодд»" in captured["system_prompt"]
+    assert "обычное слово «клоун»" in captured["system_prompt"]
