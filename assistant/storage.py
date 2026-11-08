@@ -169,16 +169,21 @@ class PostgresStore:
 
         try:
             with connection.cursor() as cursor:
-                cursor.execute("SELECT pg_try_advisory_lock(%s)", (POLL_LOCK_ID,))
-                acquired = bool(cursor.fetchone()[0])
+            while not stop_event.is_set():
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_try_advisory_lock(%s)", (POLL_LOCK_ID,))
+                    acquired = bool(cursor.fetchone()[0])
+                    if acquired:
+                        cursor.execute(
+                            "SELECT pg_backend_pid(), backend_start FROM pg_stat_activity WHERE pid = pg_backend_pid()"
+                        )
+                        lock_backend_pid, lock_backend_start = cursor.fetchone()
+                connection.commit()
                 if acquired:
-                    cursor.execute(
-                        "SELECT pg_backend_pid(), backend_start FROM pg_stat_activity WHERE pid = pg_backend_pid()"
-                    )
-                    lock_backend_pid, lock_backend_start = cursor.fetchone()
-            connection.commit()
+                    break
+                stop_event.wait(2)
             if not acquired:
-                raise StorageConfigurationError("Другой polling-процесс уже запущен")
+                raise StorageUnavailable("polling_lock_wait_interrupted")
             self._poll_lock_backend_pid = lock_backend_pid
             self._poll_lock_backend_start = lock_backend_start
             self._poll_lock_lost = lock_lost
@@ -191,7 +196,7 @@ class PostgresStore:
                 # Do not close/release the lock connection while its watchdog
                 # may still be checking ownership on a separate connection.
                 watcher.join()
-        except StorageConfigurationError:
+        except (StorageConfigurationError, StorageTransientError):
             raise
         except Exception as exc:
             self._raise_db_error(exc)
