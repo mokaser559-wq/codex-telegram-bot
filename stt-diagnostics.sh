@@ -2,7 +2,7 @@
 set -eu
 
 whisper_cli="${WHISPER_CLI:-/usr/local/bin/whisper-cli}"
-model_path="${WHISPER_MODEL_PATH:-/opt/whisper/models/ggml-tiny-q5_1.bin}"
+model_path="${WHISPER_MODEL_PATH:-/opt/whisper/models/ggml-base-q5_1.bin}"
 port="${PORT:-10000}"
 
 printf '%s\n' '=== Whisper diagnostics ==='
