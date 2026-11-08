@@ -494,9 +494,9 @@ def main():
 
     try:
         if mode == "polling":
+            server = start_http_server(store)
             with store.polling_lock(stop) as lock_lost:
                 initialize_runtime()
-                server = start_http_server(store)
                 poller = threading.Thread(target=poll_loop, args=(store, stop, fatal), name="telegram-poller")
                 poller.start()
                 run_worker_runtime(server=server, poller=poller)
