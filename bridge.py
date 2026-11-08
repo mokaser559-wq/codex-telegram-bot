@@ -31,6 +31,7 @@ from assistant.storage import (
     HistoryImportError,
     retry_delay,
 )
+from assistant.telegram_format import markdown_to_telegram_html, split_telegram_html
 
 TOKEN_FILE = Path(os.environ.get(
     "BOT_TOKEN_FILE",
@@ -303,11 +304,20 @@ def telegram(method, data=None, timeout=40):
 
 def send(chat_id, text):
     text = text.strip() or "(Codex не вернул текстовый ответ)"
-    for start in range(0, len(text), 4000):
-        telegram("sendMessage", {
+    rendered = markdown_to_telegram_html(text)
+    for chunk, plain_text in split_telegram_html(rendered):
+        data = {
             "chat_id": chat_id,
-            "text": text[start:start + 4000]
-        })
+            "text": chunk,
+            "parse_mode": "HTML",
+        }
+        try:
+            telegram("sendMessage", data)
+        except TelegramPermanentError as exc:
+            if exc.code != 400:
+                raise
+            # Preserve visible content if Telegram rejects an entity/tag.
+            telegram("sendMessage", {"chat_id": chat_id, "text": plain_text})
 
 
 def ask_codex(prompt, history=None):
