@@ -28,22 +28,18 @@ def test_correct_transcription_uses_context_and_conservative_prompt(monkeypatch)
 
 
 
-def test_correction_prompt_distinguishes_assistant_name_from_clown():
+def test_correction_prompt_distinguishes_assistant_name_from_clown(monkeypatch):
     captured = {}
 
     def fake_generate_answer(prompt, history, **kwargs):
         captured.update(kwargs)
         return "Сегодня я говорил про Клодда своему другу."
 
-    monkeypatch = __import__("pytest").MonkeyPatch()
-    try:
-        monkeypatch.setattr(providers, "generate_answer", fake_generate_answer)
-        result = providers.correct_transcription(
-            "Сегодня я говорил про клоуна своему другу.",
-            [{"role": "assistant", "text": "Я твой личный ассистент Клодд."}],
-        )
-    finally:
-        monkeypatch.undo()
+    monkeypatch.setattr(providers, "generate_answer", fake_generate_answer)
+    result = providers.correct_transcription(
+        "Сегодня я говорил про клоуна своему другу.",
+        [{"role": "assistant", "text": "Я твой личный ассистент Клодд."}],
+    )
 
     assert result == "Сегодня я говорил про Клодда своему другу."
     prompt = captured["system_prompt"]
