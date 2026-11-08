@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 ENV PYTHONUTF8=1 PYTHONUNBUFFERED=1 CODEX_SANDBOX=read-only WHISPER_MODEL_PATH=/opt/whisper/models/ggml-tiny-q5_1.bin
 USER node
 WORKDIR /home/node/app
-COPY --chown=node:node bridge.py start.sh ./
+COPY --chown=node:node bridge.py start.sh stt-diagnostics.sh ./
 COPY --chown=node:node assistant ./assistant
 COPY --chown=node:node migrations ./migrations
-CMD ["sh", "start.sh"]
+CMD ["sh", "stt-diagnostics.sh"]
