@@ -24,7 +24,7 @@ def test_correct_transcription_uses_context_and_conservative_prompt(monkeypatch)
     assert "Верни только исправленный текст" in captured["system_prompt"]
     assert "имя личного ассистента" in captured["system_prompt"]
     assert "«Клодд»" in captured["system_prompt"]
-    assert "обычное слово «клоун»" in captured["system_prompt"]
+    assert "настоящее слово «клоун»" in captured["system_prompt"]
 
 
 
