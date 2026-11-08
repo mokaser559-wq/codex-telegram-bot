@@ -52,3 +52,19 @@ def test_transcribe_audio_reports_missing_runtime(monkeypatch, tmp_path):
     monkeypatch.setattr(stt, "WHISPER_BIN", str(tmp_path / "missing-binary"))
     with pytest.raises(stt.STTConfigurationError):
         stt.transcribe_audio(tmp_path / "voice.ogg")
+
+
+
+@pytest.mark.parametrize(
+    ("transcript", "expected"),
+    [
+        ("Клот — это проверка голосового.", "Клодд — это проверка голосового."),
+        ("Глот, это проверка.", "Клодд, это проверка."),
+        ("Клод, привет!", "Клодд, привет!"),
+        ("Клодддд, привет!", "Клодд, привет!"),
+        ("Сегодня говорил про Клот.", "Сегодня говорил про Клот."),
+        ("Привет, Клод!", "Привет, Клод!"),
+    ],
+)
+def test_normalize_assistant_name_only_at_transcript_start(transcript, expected):
+    assert stt._normalize_assistant_name(transcript) == expected
