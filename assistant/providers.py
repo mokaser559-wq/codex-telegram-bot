@@ -212,9 +212,9 @@ def correct_transcription(transcript, history=None):
         system_prompt=system_prompt,
         temperature=0.1,
     )
-    if re.search(r"(?i)\\bкто\\s+такой\\s+клоунт\\b", transcript):
+    if re.search(r"(?i)\bкто\s+такой\s+клоунт\b", transcript):
         corrected = re.sub(
-            r"(?i)(\\bкто\\s+такой\\s+)клоун\\b",
+            r"(?i)(\bкто\s+такой\s+)клоун\b",
             lambda match: match.group(1) + "Клодд",
             corrected,
             count=1,
