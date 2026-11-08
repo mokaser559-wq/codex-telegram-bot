@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import re
 import subprocess
 import tempfile
+import uuid
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 
@@ -41,6 +46,62 @@ def _normalize_assistant_name(transcript: str) -> str:
     )
 
 
+
+LOG = logging.getLogger("klodd.stt")
+
+
+def _transcribe_with_groq(wav_path: Path, api_key: str) -> str:
+    """Use Groq's higher-accuracy hosted Whisper; local Whisper remains fallback."""
+    boundary = "----KloddSTT" + uuid.uuid4().hex
+    fields = (
+        ("model", "whisper-large-v3"),
+        ("language", "ru"),
+        ("response_format", "json"),
+        ("temperature", "0"),
+        ("prompt", "Русская разговорная речь. Возможные имена и термины: Клодд, таможенное дело, таможенному делу, ТН ВЭД, таможенное оформление."),
+    )
+    chunks = []
+    for name, value in fields:
+        chunks.extend((
+            f"--{boundary}\r\n".encode(),
+            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode(),
+            value.encode("utf-8"),
+            b"\r\n",
+        ))
+    chunks.extend((
+        f"--{boundary}\r\n".encode(),
+        f'Content-Disposition: form-data; name="file"; filename="voice.wav"\r\n'.encode(),
+        b"Content-Type: audio/wav\r\n\r\n",
+        wav_path.read_bytes(),
+        b"\r\n",
+        f"--{boundary}--\r\n".encode(),
+    ))
+    request = urllib.request.Request(
+        "https://api.groq.com/openai/v1/audio/transcriptions",
+        data=b"".join(chunks),
+        headers={
+            "Authorization": "Bearer " + api_key,
+            "Content-Type": "multipart/form-data; boundary=" + boundary,
+            "User-Agent": "Klodd-Telegram-Assistant",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response:
+            result = json.load(response)
+    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        raise STTUnavailable("groq_transcription_unavailable") from exc
+    except urllib.error.HTTPError as exc:
+        # Includes free-tier rate limits; the local model takes over without
+        # losing the message or requiring a paid plan.
+        raise STTUnavailable("groq_transcription_http_error") from exc
+
+    transcript = result.get("text") if isinstance(result, dict) else None
+    if not isinstance(transcript, str) or not transcript.strip():
+        raise STTUnavailable("groq_transcription_empty")
+    return transcript.strip()
+
+
 def transcribe_audio(source: str | Path) -> str:
     """Convert Telegram audio to 16 kHz mono WAV and transcribe it in Russian."""
     if not MODEL_PATH.is_file() or not os.path.isfile(WHISPER_BIN):
@@ -65,6 +126,13 @@ def transcribe_audio(source: str | Path) -> str:
             raise STTUnavailable("audio_conversion_timeout") from None
         if converted.returncode != 0 or not wav_path.is_file() or wav_path.stat().st_size == 0:
             raise STTUnsupported("audio_decode_failed")
+
+        groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+        if groq_key:
+            try:
+                return _normalize_assistant_name(_transcribe_with_groq(wav_path, groq_key))
+            except STTUnavailable as exc:
+                LOG.warning("Groq STT unavailable; using local Whisper fallback (%s)", str(exc))
 
         try:
             result = subprocess.run(
