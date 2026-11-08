@@ -109,3 +109,40 @@ def test_real_cloud_context_is_not_rewritten_as_assistant_name(monkeypatch):
 
     assert result == "Я смотрел видео про облако, и это было смешно."
 
+
+
+def test_heavily_garbled_exam_phrase_is_reconstructed_conservatively(monkeypatch):
+    monkeypatch.setattr(
+        providers,
+        "generate_answer",
+        lambda *args, **kwargs: (
+            "Клодд, я хочу подготовиться как за именем состав, "
+            "план занятий на неделю и разобраться в самых сложных темах."
+        ),
+    )
+
+    result = providers.correct_transcription(
+        "Клодд, я хочу подготовиться как за именем состав, "
+        "план занятий на неделю и разобраться в самых сложных темах."
+    )
+
+    assert result == (
+        "Клодд, я хочу подготовиться к экзаменам, составить "
+        "план занятий на неделю и разобраться в самых сложных темах."
+    )
+
+
+def test_garbled_phrase_recovery_rule_is_in_correction_prompt(monkeypatch):
+    captured = {}
+
+    def fake_generate_answer(prompt, history, **kwargs):
+        captured.update(kwargs)
+        return "Исправленный текст."
+
+    monkeypatch.setattr(providers, "generate_answer", fake_generate_answer)
+    providers.correct_transcription("Неразборчивая фраза.")
+
+    prompt = captured["system_prompt"]
+    assert "грамматически бессмысленный фрагмент" in prompt
+    assert "к экзаменам, составить план занятий" in prompt
+    assert "не достраивай отсутствующие мысли" in prompt
