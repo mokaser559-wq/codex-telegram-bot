@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -27,6 +28,17 @@ class STTConfigurationError(STTError):
 MODEL_PATH = Path(os.environ.get("WHISPER_MODEL_PATH", "/opt/whisper/models/ggml-tiny-q5_1.bin"))
 WHISPER_BIN = os.environ.get("WHISPER_BIN", "/usr/local/bin/whisper-cli")
 FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
+
+
+def _normalize_assistant_name(transcript: str) -> str:
+    """Correct known Whisper variants only when they start the transcript."""
+    return re.sub(
+        r"^(\s*)(?:Клот|Глот|Клодд{2,}|Клод)(?=\s|[,.:!?—–-]|$)",
+        r"\1Клодд",
+        transcript,
+        count=1,
+        flags=re.IGNORECASE,
+    )
 
 
 def transcribe_audio(source: str | Path) -> str:
@@ -79,4 +91,4 @@ def transcribe_audio(source: str | Path) -> str:
             raise STTUnavailable("transcript_output_missing") from None
         if not transcript:
             raise STTUnsupported("empty_transcription")
-        return transcript
+        return _normalize_assistant_name(transcript)
