@@ -170,6 +170,8 @@ def start_http_server(store, webhook_secret=None, webhook_path="/telegram/webhoo
             self.wfile.write(body)
 
         def do_GET(self):
+            if mode == "polling":
+                return Ping.do_GET(self)
             try:
                 result = store.health(mode=mode)
             except (StorageUnavailable, StorageConfigurationError):
