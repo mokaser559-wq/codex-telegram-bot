@@ -180,3 +180,40 @@ def test_garbled_exam_phrase_is_repaired_when_ai_provider_fails(monkeypatch):
         "Клодд, я хочу подготовиться к экзаменам, составить "
         "план занятий на неделю."
     )
+
+
+
+def test_customs_study_vocabulary_is_available_to_correction(monkeypatch):
+    captured = {}
+
+    def fake_generate_answer(prompt, history, **kwargs):
+        captured.update(kwargs)
+        return "Клодд, помоги подготовиться к экзаменам по таможенному делу."
+
+    monkeypatch.setattr(providers, "generate_answer", fake_generate_answer)
+    result = providers.correct_transcription(
+        "Клодд помоги подготовиться к экзаминам по тому же мы делом."
+    )
+
+    assert result == "Клодд, помоги подготовиться к экзаменам по таможенному делу."
+    assert "таможенное дело" in captured["system_prompt"]
+    assert "ТН ВЭД" in captured["system_prompt"]
+    assert "по звучанию" in captured["system_prompt"]
+
+
+def test_final_exam_phrase_guard_uses_whitespace_regex(monkeypatch):
+    monkeypatch.setattr(
+        providers,
+        "generate_answer",
+        lambda *args, **kwargs: (
+            "Клодд, хочу подготовиться как за именем состав, "
+            "план занятий на неделю."
+        ),
+    )
+
+    result = providers.correct_transcription(
+        "Клодд, хочу подготовиться к экзаменам, составить план занятий."
+    )
+
+    assert "подготовиться к экзаменам, составить" in result
+    assert "как за именем состав" not in result
