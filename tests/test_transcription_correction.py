@@ -72,3 +72,40 @@ def test_real_clown_word_is_not_changed_by_name_fallback(monkeypatch):
     result = providers.correct_transcription("Расскажи, кто такой клоун")
 
     assert result == "Расскажи, кто такой клоун?"
+
+
+def test_name_context_restores_klodd_in_cloud_like_spellings(monkeypatch):
+    monkeypatch.setattr(
+        providers,
+        "generate_answer",
+        lambda *args, **kwargs: "Сегодня я говорил про облако своему другу.",
+    )
+    history = [
+        {"role": "user", "text": "Клодд, помоги мне с учёбой."},
+        {"role": "assistant", "text": "Конечно, помогу."},
+    ]
+
+    result = providers.correct_transcription(
+        "Сегодня я говорил про клоуда своему другу.", history
+    )
+
+    assert result == "Сегодня я говорил про Клодда своему другу."
+
+
+def test_real_cloud_context_is_not_rewritten_as_assistant_name(monkeypatch):
+    monkeypatch.setattr(
+        providers,
+        "generate_answer",
+        lambda *args, **kwargs: "Я смотрел видео про облако, и это было смешно.",
+    )
+    history = [
+        {"role": "user", "text": "Привет, Клодд!"},
+        {"role": "user", "text": "Расскажи про облачные технологии и серверы."},
+    ]
+
+    result = providers.correct_transcription(
+        "Я смотрел видео про клоуда, и это было смешно.", history
+    )
+
+    assert result == "Я смотрел видео про облако, и это было смешно."
+
