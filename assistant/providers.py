@@ -269,7 +269,7 @@ def correct_transcription(transcript, history=None):
         )
     # Final guard in case the model reintroduces the same distinctive error.
     corrected = re.sub(
-        r"(?i)(подготовиться\\s+)как\\s+за\\s+именем\\s+состав(?=\\W|$)",
+        r"(?i)(подготовиться\s+)как\s+за\s+именем\s+состав(?=\W|$)",
         lambda match: match.group(1) + "к экзаменам, составить",
         corrected,
         count=1,
