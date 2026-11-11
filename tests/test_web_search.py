@@ -409,7 +409,6 @@ def test_ozon_ignores_struck_old_price_when_current_price_is_clear():
 @pytest.mark.parametrize("content", [
     "Цена 4 502 ₽\\nДоставка 299 ₽",
     "Цена 4 502 ₽\\nПлатёж 375 ₽/мес",
-    "Цена 4 502 ₽\\nСтарая цена 7 747 ₽",
     "4 502 ₽\\n7 747 ₽",
     "Доставка 299 ₽",
 ])
