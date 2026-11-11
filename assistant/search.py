@@ -67,8 +67,15 @@ def search_tavily(query):
     return payload["results"]
 
 
+def _clean_text(value):
+    """Keep untrusted result labels on one line."""
+    return " ".join(str(value or "").split())
+
+
 def _valid_http_url(value):
     url = str(value or "").strip()
+    if not url or len(url) > 2048 or any(char.isspace() or ord(char) < 32 for char in url):
+        return ""
     try:
         parsed = urlsplit(url)
         if parsed.scheme in ("http", "https") and parsed.netloc:
@@ -85,10 +92,10 @@ def format_search_context(results, today=None):
     for item in results:
         if not isinstance(item, dict):
             continue
-        title = str(item.get("title") or "").strip()
+        title = _clean_text(item.get("title"))
         url = _valid_http_url(item.get("url"))
-        published_date = str(item.get("published_date") or "").strip()
-        snippet = str(item.get("content") or "").strip()
+        published_date = _clean_text(item.get("published_date"))
+        snippet = _clean_text(item.get("content"))
         lines.extend((
             "Заголовок: " + title,
             "Дата публикации: " + (published_date or "не указана"),
@@ -99,16 +106,18 @@ def format_search_context(results, today=None):
 
 
 def format_source_links(results):
-    """Build a deterministic source list from exact URLs returned by Tavily."""
+    """Build a deterministic, de-duplicated source list from exact Tavily URLs."""
     lines = []
+    seen_urls = set()
     for item in results:
         if not isinstance(item, dict):
             continue
         url = _valid_http_url(item.get("url"))
-        if not url:
+        if not url or url in seen_urls:
             continue
-        title = str(item.get("title") or "").strip() or "Источник"
-        published_date = str(item.get("published_date") or "").strip()
+        seen_urls.add(url)
+        title = _clean_text(item.get("title")) or "Источник"
+        published_date = _clean_text(item.get("published_date"))
         label = title + (" — " + published_date if published_date else "")
         lines.append("- " + label + ": " + url)
     if not lines:
