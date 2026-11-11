@@ -592,6 +592,19 @@ def enrich_ozon_product_results(results):
     return enriched
 
 
+
+def remove_ozon_budget_constraint(query):
+    """Remove a requested price ceiling from Ozon discovery, not from display."""
+    text = str(query or "")
+    pattern = (
+        r"(?i)\\b(?:до|не\\s+дороже|максимум|в\\s+пределах|"
+        r"бюджет(?:ом)?(?:\\s+до)?|under)\\s*"
+        r"(?:\\d{1,3}(?:[ \\u00a0\\u202f]\\d{3})+|\\d{3,6})"
+        r"\\s*(?:₽|руб(?:\\.|лей|ля)?)?"
+    )
+    text = re.sub(pattern, " ", text)
+    return " ".join(text.split()).strip(" ,.;:-")
+
 def extract_ozon_budget(query):
     """Read an explicit maximum price from a shopping request."""
     text = str(query or "").lower().replace("ё", "е")
@@ -706,9 +719,10 @@ def search_tavily(query):
     is_news = _is_news_query(query)
     is_ozon = _is_ozon_product_query(query)
     date_range = requested_date_range(query)
+    ozon_discovery_query = remove_ozon_budget_constraint(query) if is_ozon else query
     search_queries = (
-        ["site:ozon.ru " + str(query).strip(),
-         "site:ozon.ru/product/ " + str(query).strip()]
+        ["site:ozon.ru " + str(ozon_discovery_query).strip(),
+         "site:ozon.ru/product/ " + str(ozon_discovery_query).strip()]
         if is_ozon else [query]
     )
     combined_results = []
