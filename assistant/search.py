@@ -24,7 +24,8 @@ SEARCH_SYSTEM_RULE = (
     "Не придумывай цены, скидки, наличие, рейтинг или характеристики: указывай их только "
     "если они явно присутствуют в извлечённом содержимом карточки. При ограничении бюджета "
     "рекомендуй только товары с однозначно извлечённой ценой не выше бюджета. Не считай "
-    "отсутствующую или неоднозначную цену подходящей. Указывай, что цена взята из содержимого "
+    "неизвестную цену подходящей: такие товары можно перечислять только отдельно с пометкой, "
+    "что бюджет не подтверждён. Исключай товары с подтверждённой ценой выше бюджета. Указывай, что цена взята из содержимого "
     "страницы и может измениться. Не подменяй карточку товара страницей категории, поиска, "
     "отзывов или главной страницей."
 )
@@ -131,40 +132,51 @@ def _is_ozon_product_query(query):
     return bool(re.search(r"(?<!\w)(?:ozon|озон)(?!\w)", text))
 
 
-def _is_ozon_product_url(value):
-    """Accept individual Ozon product cards, not search/category/review pages."""
+def _canonical_ozon_product_url(value):
+    """Normalize an Ozon review URL to its underlying product card URL."""
     url = _valid_http_url(value)
     if not url:
-        return False
+        return ""
     try:
         parsed = urlsplit(url)
         host = (parsed.hostname or "").lower()
         if host != "ozon.ru" and not host.endswith(".ozon.ru"):
-            return False
-        segments = [part.lower() for part in parsed.path.split("/") if part]
-        if len(segments) < 2 or segments[0] != "product":
-            return False
-        if any(part in {"reviews", "review", "otzyvy", "description", "questions", "video"} for part in segments[2:]):
-            return False
-        return True
+            return ""
+        segments = [part for part in parsed.path.split("/") if part]
+        if len(segments) == 3 and segments[0].lower() == "product" and segments[2].lower() in {
+            "reviews", "review", "otzyvy"
+        }:
+            segments = segments[:2]
+        if len(segments) != 2 or segments[0].lower() != "product":
+            return ""
+        path = "/" + "/".join(segments) + "/"
+        return urlunsplit(("https", "www.ozon.ru", path, "", ""))
     except ValueError:
-        return False
+        return ""
+
+
+def _is_ozon_product_url(value):
+    """Accept direct Ozon product cards and their review subpages only."""
+    return bool(_canonical_ozon_product_url(value))
 
 
 def filter_ozon_product_results(results):
-    """Keep unique, direct Ozon product-card URLs only."""
+    """Keep unique direct Ozon product cards; normalize review subpages."""
     if not isinstance(results, list):
         return []
     filtered = []
     seen = set()
     for item in results:
-        if not isinstance(item, dict) or not _is_ozon_product_url(item.get("url")):
+        if not isinstance(item, dict):
             continue
-        key = _url_key(item.get("url"))
+        canonical_url = _canonical_ozon_product_url(item.get("url"))
+        if not canonical_url:
+            continue
+        key = _url_key(canonical_url)
         if not key or key in seen:
             continue
         seen.add(key)
-        filtered.append(item)
+        filtered.append({**item, "url": canonical_url})
     return filtered
 
 
