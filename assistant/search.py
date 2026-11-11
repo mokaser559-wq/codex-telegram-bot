@@ -1,6 +1,8 @@
 """Tavily search helpers. Search results are always treated as untrusted data."""
+import calendar
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from datetime import date
@@ -56,6 +58,56 @@ def needs_search(text):
     return any(term in text for term in terms)
 
 
+MONTH_PATTERNS = {
+    "январ": 1, "феврал": 2, "март": 3, "апрел": 4,
+    "ма": 5, "июн": 6, "июл": 7, "август": 8,
+    "сентябр": 9, "октябр": 10, "ноябр": 11, "декабр": 12,
+    "january": 1, "february": 2, "march": 3, "april": 4,
+    "may": 5, "june": 6, "july": 7, "august": 8,
+    "september": 9, "october": 10, "november": 11, "december": 12,
+}
+
+
+def requested_date_range(query, today=None):
+    """Extract an explicit month/year window without guessing missing years."""
+    text = str(query or "").lower()
+    today = today or date.today()
+    month_pattern = "|".join(sorted(MONTH_PATTERNS, key=len, reverse=True))
+    match = re.search(r"\\b(" + month_pattern + r"\\w*)\\s+(20\\d{2})\\b", text)
+    if not match:
+        return None
+    month_token = match.group(1)
+    month = next(
+        number for prefix, number in MONTH_PATTERNS.items()
+        if month_token.startswith(prefix)
+    )
+    year = int(match.group(2))
+    start = date(year, month, 1)
+    last_day = calendar.monthrange(year, month)[1]
+    end = min(date(year, month, last_day), today) if (year, month) == (today.year, today.month) else date(year, month, last_day)
+    if start > today:
+        return None
+    return {"start_date": start.isoformat(), "end_date": end.isoformat()}
+
+
+def _filter_results_by_date(results, date_range):
+    if not date_range:
+        return results
+    filtered = []
+    start = date.fromisoformat(date_range["start_date"])
+    end = date.fromisoformat(date_range["end_date"])
+    for item in results:
+        raw_date = str(item.get("published_date") or "")[:10]
+        try:
+            published = date.fromisoformat(raw_date)
+        except ValueError:
+            filtered.append(item)
+            continue
+        if start <= published <= end:
+            filtered.append(item)
+    return filtered
+
+
 def _is_news_query(query):
     text = str(query or "").lower()
     return any(term in text for term in ("новост", "событи", "news", "breaking"))
@@ -72,6 +124,9 @@ def search_tavily(query):
         "max_results": 10,
         "include_answer": False,
     }
+    date_range = requested_date_range(query)
+    if date_range:
+        payload.update(date_range)
     if is_news:
         # News-specific retrieval and deeper relevance ranking cost more, but
         # avoid returning social videos and category pages for article requests.
@@ -97,7 +152,7 @@ def search_tavily(query):
         raise SearchError("Tavily вернул некорректный ответ.") from None
     if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
         raise SearchError("Tavily вернул некорректный ответ.")
-    return payload["results"]
+    return _filter_results_by_date(payload["results"], date_range)
 
 
 def _clean_text(value):
