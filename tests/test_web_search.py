@@ -724,3 +724,19 @@ def test_ozon_verification_uses_extract_when_direct_card_verification_fails(monk
     assert verified[0]["_ozon_live_available"] is True
     assert verified[0]["_ozon_price_rub"] == 4502
     assert "Tavily" in verified[0]["_ozon_price_source"]
+
+
+def test_ozon_extract_fallback_does_not_override_explicit_out_of_stock(monkeypatch):
+    item = {"title": "Headphones", "url": "https://www.ozon.ru/product/headphones-123/"}
+    monkeypatch.setattr(search, "_verify_ozon_card", lambda candidate: {
+        **candidate,
+        "_ozon_live_verified": False,
+        "_ozon_live_available": False,
+        "_ozon_live_status": "out_of_stock",
+    })
+    monkeypatch.setattr(
+        search, "_fetch_tavily_extract_contents",
+        lambda urls: pytest.fail("must not override explicit Ozon out-of-stock state"),
+    )
+    result = search.verify_ozon_product_results([item])
+    assert result[0]["_ozon_live_status"] == "out_of_stock"
