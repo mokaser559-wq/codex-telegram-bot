@@ -135,7 +135,7 @@ def test_explicit_month_range_is_sent_to_tavily_and_filters_out_of_range_results
     monkeypatch.setenv("TAVILY_API_KEY", "fake-key")
     monkeypatch.setattr(
         search, "requested_date_range",
-        lambda query: {"start_date": "2026-11-01", "end_date": "2026-11-11"},
+        lambda query: {"start_date": "2026-11-01", "end_date": "2026-11-12"},
     )
     captured = {}
 
