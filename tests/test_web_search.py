@@ -365,6 +365,7 @@ def test_ozon_search_route_uses_product_filter_and_card_heading(monkeypatch):
         lambda *args, **kwargs: calls.append((args, kwargs)) or "Подходящий товар",
     )
     answer = core.process_message("Найди на Ozon беспроводные наушники")
+    monkeypatch.setattr(core, "verify_ozon_product_results", lambda items: [{**items[0], "_ozon_price_rub": 3990, "_ozon_price_verified": True, "_ozon_live_verified": True, "_ozon_live_available": True}])
     assert "Цена 3 990 ₽" in calls[0][1]["search_context"]
     assert "not a product card" not in calls[0][1]["search_context"]
     assert answer.endswith(
@@ -481,11 +482,12 @@ def test_ozon_budget_route_excludes_unknown_and_over_budget_cards(monkeypatch):
         {"title": "Over budget", "url": "https://ozon.ru/product/b-456/", "content": "Цена 6 500 ₽"},
     ]
     monkeypatch.setattr(core, "search_tavily", lambda query: results)
+    monkeypatch.setattr(core, "verify_ozon_product_results", lambda items: items)
     calls = []
     monkeypatch.setattr(core, "generate_answer", lambda *args, **kwargs: calls.append(kwargs) or "Не должно вызываться.")
     answer = core.process_message("Найди на Ozon наушники до 5000 рублей")
     assert calls == []
-    assert "Не нашёл на Ozon товаров" in answer
+    assert "Не удалось подтвердить на карточках Ozon" in answer
     assert "ozon.ru/product/" not in answer
 
 
@@ -497,20 +499,20 @@ def test_ozon_budget_route_excludes_unknown_and_over_budget_cards(monkeypatch):
 ])
 def test_ozon_budget_filter_excludes_unavailable_products(status_text):
     items = [
-        {"title": "Available", "_ozon_price_rub": 4500, "content": "В наличии"},
-        {"title": "Unavailable", "_ozon_price_rub": 3900, "content": status_text},
+        {"title": "Available", "_ozon_price_rub": 4500, "_ozon_live_verified": True, "_ozon_live_available": True, "content": "В наличии"},
+        {"title": "Unavailable", "_ozon_price_rub": 3900, "_ozon_live_verified": False, "_ozon_live_available": False, "content": status_text},
     ]
     assert [item["title"] for item in core._filter_ozon_budget_results(items, 5000)] == ["Available"]
 
 
 def test_ozon_budget_filter_requires_price_and_respects_budget():
     items = [
-        {"title": "Approximate within budget", "_ozon_price_rub": 4990},
-        {"title": "Over budget", "_ozon_price_rub": 5001},
-        {"title": "Unknown price", "_ozon_price_rub": None},
+        {"title": "Verified within budget", "_ozon_price_rub": 4990, "_ozon_live_verified": True, "_ozon_live_available": True},
+        {"title": "Over budget", "_ozon_price_rub": 5001, "_ozon_live_verified": True, "_ozon_live_available": True},
+        {"title": "Unknown price", "_ozon_price_rub": None, "_ozon_live_verified": False, "_ozon_live_available": None},
     ]
     assert [item["title"] for item in core._filter_ozon_budget_results(items, 5000)] == [
-        "Approximate within budget"
+        "Verified within budget"
     ]
 
 
@@ -520,8 +522,9 @@ def test_ozon_budget_route_returns_no_links_when_all_cards_are_unknown_or_unavai
         {"title": "Sold out", "url": "https://ozon.ru/product/b-456/", "content": "Товар закончился", "raw_content": "Цена 4 500 ₽"},
     ]
     monkeypatch.setattr(core, "search_tavily", lambda query: results)
+    monkeypatch.setattr(core, "verify_ozon_product_results", lambda items: items)
     answer = core.process_message("Найди на Ozon наушники до 5000 рублей")
-    assert "Не нашёл на Ozon товаров" in answer
+    assert "Не удалось подтвердить на карточках Ozon" in answer
     assert "ozon.ru/product/" not in answer
 
 
