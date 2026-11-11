@@ -103,7 +103,8 @@ def _filter_results_by_date(results, date_range):
         try:
             published = date.fromisoformat(raw_date)
         except ValueError:
-            # An explicit date window requires a verifiable publication date.
+            # Keep undated articles: the assistant must report the date as unknown.
+            filtered.append(item)
             continue
         if start <= published <= end:
             filtered.append(item)
