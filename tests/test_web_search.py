@@ -431,5 +431,5 @@ def test_ozon_budget_route_refuses_unverified_results(monkeypatch):
     monkeypatch.setattr(core, "search_tavily", lambda query: results)
     monkeypatch.setattr(core, "generate_answer", lambda *args, **kwargs: pytest.fail("model must not receive unverified products"))
     answer = core.process_message("Найди на Ozon наушники до 5000 рублей")
-    assert "не буду выдавать товары" in answer
+    assert "не буду выдавать товары" in answer.lower()
     assert "5000 ₽" in answer
