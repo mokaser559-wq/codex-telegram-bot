@@ -552,6 +552,7 @@ def verify_ozon_product_results(results):
     fallback = [
         item for item in verified
         if item.get("_ozon_live_verified") is not True
+        and item.get("_ozon_live_status") != "out_of_stock"
     ]
     extracted = _fetch_tavily_extract_contents([item["url"] for item in fallback])
     by_url = {_url_key(item["url"]): item for item in fallback}
