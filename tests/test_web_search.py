@@ -378,6 +378,7 @@ def test_ozon_price_is_extracted_only_when_unambiguous():
     assert search._extract_ozon_price({"raw_content": "Стоимость: 2 799 руб."}) == (
         2799, "извлечённое содержимое карточки", True
     )
+    assert search._extract_ozon_price({"raw_content": "Доставка 299 ₽"}) == (None, "", False)
 
 
 @pytest.mark.parametrize(("query", "expected"), [
