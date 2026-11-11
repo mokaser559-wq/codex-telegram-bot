@@ -19,6 +19,14 @@ from assistant.search import (
 def process_message(text, history=None, codex_handler=None, status_handler=None, requeue_handler=None):
     """Обрабатывает сообщение и возвращает текст ответа."""
     history = history or []
+    if text == "/ozon_debug":
+        try:
+            diagnostic_results = search_tavily(
+                "Найди на Ozon беспроводные наушники Anker Soundcore"
+            )
+            return format_ozon_debug_report(diagnostic_results)
+        except SearchError:
+            return "Не удалось получить диагностический ответ Tavily. Ключ и настройки не изменялись."
     route = route_message(text)
 
     if route == "local":
