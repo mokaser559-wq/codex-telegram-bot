@@ -395,25 +395,18 @@ def search_tavily(query):
     is_news = _is_news_query(query)
     is_ozon = _is_ozon_product_query(query)
     date_range = requested_date_range(query)
-
-    # A strict /product/ query alone misses many Ozon listings. Search Ozon
-    # broadly first, then supplement it with a direct-card query. Category
-    # pages are still removed later by filter_ozon_product_results().
     search_queries = (
-        [
-            "site:ozon.ru " + str(query).strip(),
-            "site:ozon.ru/product/ " + str(query).strip(),
-        ]
+        ["site:ozon.ru " + str(query).strip(),
+         "site:ozon.ru/product/ " + str(query).strip()]
         if is_ozon else [query]
     )
     combined_results = []
     seen_urls = set()
-
     for search_query in search_queries:
         payload = {
             "api_key": api_key,
             "query": search_query,
-            "max_results": 10,
+            "max_results": 10 if is_ozon else 6,
             "include_answer": False,
         }
         if date_range:
@@ -422,7 +415,6 @@ def search_tavily(query):
             payload.update({
                 "search_depth": "advanced",
                 "include_domains": ["ozon.ru"],
-                "max_results": 10,
                 "include_raw_content": "markdown",
             })
         if is_news:
@@ -458,5 +450,127 @@ def search_tavily(query):
             if key:
                 seen_urls.add(key)
             combined_results.append(item)
-
     return combined_results
+
+
+def _clean_text(value):
+    """Keep untrusted result labels on one line."""
+    return " ".join(str(value or "").split())
+
+
+def _valid_http_url(value):
+    url = str(value or "").strip()
+    if not url or len(url) > 2048 or any(char.isspace() or ord(char) < 32 for char in url):
+        return ""
+    try:
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme in ("http", "https")
+            and parsed.hostname
+            and parsed.username is None
+            and parsed.password is None
+        ):
+            parsed.port  # Validate malformed ports before accepting the URL.
+            return url
+    except ValueError:
+        pass
+    return ""
+
+
+def _is_article_url(value):
+    """Reject homepages and obvious taxonomy/listing pages, not article URLs."""
+    url = _valid_http_url(value)
+    if not url:
+        return False
+    try:
+        parsed = urlsplit(url)
+        host = (parsed.hostname or "").lower()
+        if any(host == domain or host.endswith("." + domain) for domain in NEWS_EXCLUDED_DOMAINS):
+            return False
+        segments = [part.lower() for part in parsed.path.split("/") if part]
+    except ValueError:
+        return False
+    if not segments:
+        return False
+    if segments[-1] in _LISTING_PAGES:
+        return False
+    # Taxonomy URLs usually have exactly /tag/name or /category/name.
+    # Do not reject deeper URLs: publishers also place articles below
+    # /news/, /topics/ or /category/ paths.
+    if len(segments) == 2 and segments[0] in _LISTING_SEGMENTS:
+        return False
+    return True
+
+
+def _url_key(value):
+    """Normalize harmless URL differences for duplicate detection."""
+    url = _valid_http_url(value)
+    if not url:
+        return ""
+    parsed = urlsplit(url)
+    host = (parsed.hostname or "").lower().removeprefix("www.")
+    default_port = 443 if parsed.scheme.lower() == "https" else 80
+    if parsed.port and parsed.port != default_port:
+        host += ":" + str(parsed.port)
+    path = parsed.path.rstrip("/") or "/"
+    query = [
+        (key, val) for key, val in parse_qsl(parsed.query, keep_blank_values=True)
+        if not key.lower().startswith("utm_")
+        and key.lower() not in {"gclid", "fbclid", "yclid", "ref", "source"}
+    ]
+    return urlunsplit((parsed.scheme.lower(), host, path, urlencode(query), ""))
+
+
+def filter_search_results(results):
+    """Keep plausible article URLs and remove duplicate URLs."""
+    if not isinstance(results, list):
+        return []
+    filtered = []
+    seen = set()
+    for item in results:
+        if not isinstance(item, dict) or not _is_article_url(item.get("url")):
+            continue
+        key = _url_key(item.get("url"))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        filtered.append(item)
+    return filtered
+
+
+def format_search_context(results, today=None):
+    """Render date and untrusted result fields, including publication dates."""
+    today = today or date.today().isoformat()
+    lines = ["Дата поиска: " + today]
+    for item in filter_search_results(results):
+        title = _clean_text(item.get("title"))
+        url = _valid_http_url(item.get("url"))
+        published_date = _clean_text(item.get("published_date"))
+        snippet = _clean_text(item.get("content"))
+        lines.extend((
+            "Заголовок: " + title,
+            "Дата публикации: " + (published_date or "не указана"),
+            "URL: " + url,
+            "Фрагмент: " + snippet,
+        ))
+    return "\n".join(lines)
+
+
+def format_source_links(results, answer="", heading="Ссылки на найденные публикации"):
+    """Append only valid source URLs not already present in the generated answer."""
+    lines = []
+    seen_urls = set()
+    answer = str(answer or "")
+    for item in filter_search_results(results):
+        url = _valid_http_url(item.get("url"))
+        key = _url_key(url)
+        if not url or key in seen_urls or url in answer:
+            continue
+        seen_urls.add(key)
+        title = _clean_text(item.get("title")) or "Источник"
+        published_date = _clean_text(item.get("published_date"))
+        label = title + (" — " + published_date if published_date else "")
+        lines.append("- " + label + ": " + url)
+    if not lines:
+        return ""
+    return heading + ":\n" + "\n".join(lines)
