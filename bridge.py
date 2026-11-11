@@ -540,8 +540,7 @@ def main():
                             target=poll_loop, args=(store, stop, fatal), name="telegram-poller"
                         )
                         poller.start()
-                        run_worker_runtime(server=server, poller=poller)
-                        server = None
+                        run_worker_runtime(poller=poller)
                         break
                 except StorageConfigurationError as exc:
                     if str(exc) != "Другой polling-процесс уже запущен":
