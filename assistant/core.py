@@ -73,9 +73,13 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
                 if budget is not None:
                     results = [
                         item for item in results
-                        if item.get("_ozon_price_verified") is True
-                        and isinstance(item.get("_ozon_price_rub"), int)
-                        and item["_ozon_price_rub"] <= budget
+                        if (
+                            item.get("_ozon_price_verified") is not True
+                            or (
+                                isinstance(item.get("_ozon_price_rub"), int)
+                                and item["_ozon_price_rub"] <= budget
+                            )
+                        )
                     ]
             else:
                 results = filter_search_results(raw_results)
@@ -103,7 +107,7 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
             text, history, search_context=context,
             search_notice=(
                 "Поиск выполнен. Отвечай только по найденным результатам. "
-                + ("Для бюджета используй только переданные товары с подтверждённой ценой; не добавляй другие товары. " if is_ozon else "")
+                + ("При бюджете разделяй товары с подтверждённой ценой в пределах бюджета и товары с неизвестной ценой. Не называй товары с неизвестной ценой подходящими по бюджету; не упоминай товары с подтверждённой ценой выше бюджета. " if is_ozon and budget is not None else "")
                 + "Не выдумывай даты или заголовки, используй только факты, "
                 "которые подтверждаются фрагментами. Не создавай отдельный "
                 "список источников в конце ответа — ссылки будут добавлены автоматически."
