@@ -58,7 +58,7 @@ def needs_search(text):
         "сравни цены", "курс валют", "погода", "когда выйдет", "что произошло",
         "what's new", "latest", "current", "today", "news", "search for",
         "look up", "verify", "source", "price of", "weather", "ozon", "озон",
-        "товар", "товары", "подбери", "купить", "маркетплейс",
+        "подбери", "купить", "маркетплейс",
     )
     return any(term in text for term in terms)
 
