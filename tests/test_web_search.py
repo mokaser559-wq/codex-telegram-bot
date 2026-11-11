@@ -31,7 +31,7 @@ def test_missing_publication_date_is_explicit():
     assert "Дата публикации: не указана" in formatted
 
 
-def test_source_links_use_exact_tavily_urls_and_skip_invalid_urls():
+def test_source_links_use_exact_tavily_urls_skip_invalid_and_deduplicate():
     links = search.format_source_links([
         {
             "title": "Article A",
@@ -40,6 +40,7 @@ def test_source_links_use_exact_tavily_urls_and_skip_invalid_urls():
         },
         {"title": "Bad URL", "url": "javascript:alert(1)"},
         {"title": "Article B", "url": "https://example.test/b"},
+        {"title": "Duplicate", "url": "https://example.test/a"},
         {"title": "No URL"},
     ])
     assert links == (
@@ -48,6 +49,17 @@ def test_source_links_use_exact_tavily_urls_and_skip_invalid_urls():
         "- Article B: https://example.test/b"
     )
     assert "javascript:" not in links
+
+
+def test_source_links_sanitize_multiline_titles_and_reject_whitespace_urls():
+    links = search.format_source_links([
+        {"title": "Article\n- Fake item", "url": "https://example.test/a"},
+        {"title": "Bad URL", "url": "https://example.test/a b"},
+    ])
+    assert links == (
+        "Ссылки на найденные материалы:\n"
+        "- Article - Fake item: https://example.test/a"
+    )
 
 
 def test_source_links_empty_when_no_valid_urls():
