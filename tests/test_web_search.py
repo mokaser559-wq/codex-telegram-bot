@@ -321,7 +321,7 @@ def test_ozon_product_query_uses_domain_restricted_advanced_search(monkeypatch):
 
     monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
     search.search_tavily("Найди на Ozon беспроводные наушники до 5000 рублей")
-    assert captured["query"].startswith("site:ozon.ru/product ")
+    assert captured["query"].startswith("site:ozon.ru/product/ ")
     assert captured["include_domains"] == ["ozon.ru"]
     assert captured["search_depth"] == "advanced"
     assert captured["max_results"] == 6
