@@ -52,6 +52,7 @@ WEBHOOK_MAX_BODY_BYTES = 1_048_576
 WEBHOOK_READ_TIMEOUT_SECONDS = 10
 HTTP_MAX_CONCURRENT_REQUESTS = 16
 HTTP_SHUTDOWN_WAIT_SECONDS = 12
+POLLING_LOCK_RETRY_SECONDS = 3
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 LOG = logging.getLogger("klodd")
 
@@ -524,22 +525,39 @@ def main():
                 poller.join()
             worker.join()
 
+    server = None
     try:
         if mode == "polling":
-            with store.polling_lock(stop) as lock_lost:
-                initialize_runtime()
-                server = start_http_server(store)
-                poller = threading.Thread(target=poll_loop, args=(store, stop, fatal), name="telegram-poller")
-                poller.start()
-                run_worker_runtime(server=server, poller=poller)
+            # Render may start the replacement instance before stopping the
+            # old one. Open the HTTP port first so Render can complete the
+            # handover; then wait for the old instance to release its lock.
+            server = start_http_server(store)
+            while not stop.is_set():
+                try:
+                    with store.polling_lock(stop) as lock_lost:
+                        initialize_runtime()
+                        poller = threading.Thread(
+                            target=poll_loop, args=(store, stop, fatal), name="telegram-poller"
+                        )
+                        poller.start()
+                        run_worker_runtime(poller=poller)
+                        break
+                except StorageConfigurationError as exc:
+                    if str(exc) != "Другой polling-процесс уже запущен":
+                        raise
+                    LOG.info("Previous polling instance is still active; waiting for handover")
+                    stop.wait(POLLING_LOCK_RETRY_SECONDS)
         else:
             initialize_runtime()
             server = start_http_server(store, webhook_secret, webhook_path)
             run_worker_runtime(server=server)
+            server = None
     except KeyboardInterrupt:
         LOG.info("Shutdown requested")
     finally:
         stop.set()
+        if server is not None:
+            shutdown_http_server(server)
     if fatal.is_set() or (lock_lost is not None and lock_lost.is_set()):
         if lock_lost is not None and lock_lost.is_set() and not fatal.is_set():
             LOG.critical("Polling stopped because the PostgreSQL advisory-lock connection was lost")
