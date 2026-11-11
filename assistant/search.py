@@ -406,7 +406,7 @@ def search_tavily(query):
         payload = {
             "api_key": api_key,
             "query": search_query,
-            "max_results": 10 if is_ozon else 6,
+            "max_results": 10 if (is_ozon or is_news) else 6,
             "include_answer": False,
         }
         if date_range:
