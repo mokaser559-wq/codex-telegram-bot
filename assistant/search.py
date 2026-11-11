@@ -273,7 +273,7 @@ def _url_key(value):
     if not url:
         return ""
     parsed = urlsplit(url)
-    host = (parsed.hostname or "").lower()
+    host = (parsed.hostname or "").lower().removeprefix("www.")
     default_port = 443 if parsed.scheme.lower() == "https" else 80
     if parsed.port and parsed.port != default_port:
         host += ":" + str(parsed.port)
