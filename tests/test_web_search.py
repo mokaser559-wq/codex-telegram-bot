@@ -373,10 +373,10 @@ def test_ozon_search_route_uses_product_filter_and_card_heading(monkeypatch):
 
 def test_ozon_price_is_extracted_only_when_unambiguous():
     item = {"content": "Цена 3 990 ₽"}
-    assert search._extract_ozon_price(item) == (3990, "поисковый фрагмент")
-    assert search._extract_ozon_price({"content": "Цена 3 990 ₽, старая цена 4 990 ₽"}) == (None, "")
+    assert search._extract_ozon_price(item) == (3990, "поисковый фрагмент (не подтверждён карточкой)", False)
+    assert search._extract_ozon_price({"content": "Цена 3 990 ₽, старая цена 4 990 ₽"}) == (None, "", False)
     assert search._extract_ozon_price({"raw_content": "Стоимость: 2 799 руб."}) == (
-        2799, "извлечённое содержимое карточки"
+        2799, "извлечённое содержимое карточки", True
     )
 
 
@@ -392,11 +392,12 @@ def test_extract_ozon_budget(query, expected):
 
 def test_ozon_enrichment_keeps_unknown_price_explicit():
     items = search.enrich_ozon_product_results([
-        {"title": "Known", "url": "https://ozon.ru/product/a-123/", "content": "Цена 4 500 ₽"},
+        {"title": "Known", "url": "https://ozon.ru/product/a-123/", "content": "Цена 4 500 ₽", "raw_content": "Цена: 4 500 ₽"},
         {"title": "Unknown", "url": "https://ozon.ru/product/b-456/", "content": "Беспроводные наушники"},
         {"title": "Ambiguous", "url": "https://ozon.ru/product/c-789/", "content": "3 900 ₽, старая цена 5 900 ₽"},
     ])
     assert [item["_ozon_price_rub"] for item in items] == [4500, None, None]
+    assert [item["_ozon_price_verified"] for item in items] == [True, False, False]
     context = search.format_ozon_search_context(items, today="2026-11-12")
     assert "Цена: 4500 ₽" in context
     assert context.count("не удалось однозначно подтвердить") == 2
@@ -404,8 +405,8 @@ def test_ozon_enrichment_keeps_unknown_price_explicit():
 
 def test_ozon_budget_route_excludes_unknown_and_over_budget_products(monkeypatch):
     results = [
-        {"title": "Under budget", "url": "https://ozon.ru/product/a-123/", "content": "Цена 4 500 ₽"},
-        {"title": "Over budget", "url": "https://ozon.ru/product/b-456/", "content": "Цена 6 500 ₽"},
+        {"title": "Under budget", "url": "https://ozon.ru/product/a-123/", "content": "Цена 4 500 ₽", "raw_content": "Цена: 4 500 ₽"},
+        {"title": "Over budget", "url": "https://ozon.ru/product/b-456/", "content": "Цена 6 500 ₽", "raw_content": "Цена: 6 500 ₽"},
         {"title": "Unknown", "url": "https://ozon.ru/product/c-789/", "content": "Наушники Bluetooth"},
     ]
     calls = []
