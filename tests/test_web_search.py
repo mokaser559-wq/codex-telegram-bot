@@ -362,9 +362,9 @@ def test_ozon_search_route_uses_product_filter_and_card_heading(monkeypatch):
     ]
     calls = []
     monkeypatch.setattr(core, "search_tavily", lambda query: results)
-    monkeypatch.setattr(core, "enrich_ozon_product_results", lambda items: [
-        {**items[0], "_ozon_price_rub": 3990, "_ozon_price_verified": False,
-         "_ozon_price_source": "примерная цена из поискового фрагмента Tavily"}
+    monkeypatch.setattr(core, "verify_ozon_product_results", lambda items: [
+        {**items[0], "_ozon_price_rub": 3990, "_ozon_price_verified": True,
+         "_ozon_live_verified": True, "_ozon_live_available": True}
     ])
     monkeypatch.setattr(
         core, "generate_answer",
@@ -372,6 +372,7 @@ def test_ozon_search_route_uses_product_filter_and_card_heading(monkeypatch):
     )
     answer = core.process_message("Найди на Ozon беспроводные наушники")
     assert "Цена 3 990 ₽" in calls[0][1]["search_context"]
+    assert "Доставка: не проверена" in calls[0][1]["search_context"]
     assert "not a product card" not in calls[0][1]["search_context"]
     assert answer.endswith(
         "Карточки товаров на Ozon:\n"
@@ -581,55 +582,7 @@ def test_ozon_composer_widget_does_not_guess_missing_stock():
     assert search._composer_product_offers(payload) == []
 
 
-def test_ozon_tavily_extract_parser_requires_price_and_explicit_stock():
-    offer = search._tavily_extracted_card_offer(
-        "Anker Soundcore P42i\\nЦена: 4 502 ₽\\nНаличие: В наличии",
-        "Anker Soundcore P42i",
-    )
-    assert offer == {
-        "title": "Anker Soundcore P42i",
-        "price": 4502,
-        "available": True,
-        "availability": "instock",
-    }
-
-
-@pytest.mark.parametrize("page", [
-    "Цена: 4 502 ₽",
-    "Цена: 4 502 ₽\\nНет в наличии",
-    "Цена: 4 502 ₽\\nДоставка 299 ₽\\n7 747 ₽",
-    "Товар закончился",
-])
-def test_ozon_tavily_extract_parser_rejects_unverified_stock_or_ambiguous_price(page):
-    assert search._tavily_extracted_card_offer(page, "Headphones") is None
-
-
-def test_ozon_tavily_extract_fetches_known_cards_with_advanced_depth(monkeypatch):
-    monkeypatch.setenv("TAVILY_API_KEY", "test-key")
-    captured = {}
-
-    def fake_urlopen(request, timeout):
-        captured["url"] = request.full_url
-        captured["payload"] = json.loads(request.data)
-        return io.BytesIO(json.dumps({
-            "results": [{
-                "url": "https://www.ozon.ru/product/headphones-123/",
-                "raw_content": "Цена: 4 502 ₽\\nВ наличии",
-            }],
-            "failed_results": [],
-        }).encode())
-
-    monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
-    result = search._fetch_tavily_extract_contents([
-        "https://www.ozon.ru/product/headphones-123/"
-    ])
-    assert captured["url"] == "https://api.tavily.com/extract"
-    assert captured["payload"]["extract_depth"] == "advanced"
-    assert captured["payload"]["urls"] == ["https://www.ozon.ru/product/headphones-123/"]
-    assert result[search._url_key("https://www.ozon.ru/product/headphones-123/")].startswith("Цена:")
-
-
-def test_ozon_verification_uses_extract_when_direct_card_verification_fails(monkeypatch):
+def test_ozon_verification_keeps_direct_failure_unverified(monkeypatch):
     item = {
         "title": "Anker Soundcore P42i",
         "url": "https://www.ozon.ru/product/headphones-123/",
@@ -639,31 +592,45 @@ def test_ozon_verification_uses_extract_when_direct_card_verification_fails(monk
         "_ozon_live_verified": False,
         "_ozon_live_status": "unreachable",
     })
-    monkeypatch.setattr(search, "_fetch_tavily_extract_contents", lambda urls: {
-        search._url_key(urls[0]): "Anker Soundcore P42i\\nЦена: 4 502 ₽\\nВ наличии"
-    })
     verified = search.verify_ozon_product_results([item])
-    assert verified[0]["_ozon_live_verified"] is True
-    assert verified[0]["_ozon_live_available"] is True
-    assert verified[0]["_ozon_price_rub"] == 4502
-    assert "Tavily" in verified[0]["_ozon_price_source"]
+    assert verified[0]["_ozon_live_verified"] is False
+    assert verified[0]["_ozon_live_status"] == "unreachable"
 
 
-def test_ozon_extract_fallback_does_not_override_explicit_out_of_stock(monkeypatch):
-    item = {"title": "Headphones", "url": "https://www.ozon.ru/product/headphones-123/"}
-    monkeypatch.setattr(search, "_verify_ozon_card", lambda candidate: {
-        **candidate,
-        "_ozon_live_verified": False,
-        "_ozon_live_available": False,
-        "_ozon_live_status": "out_of_stock",
-    })
+def test_ozon_budget_filter_requires_live_price_and_stock():
+    items = [
+        {"title": "Within budget", "_ozon_price_rub": 4500,
+         "_ozon_live_verified": True, "_ozon_live_available": True},
+        {"title": "Over budget", "_ozon_price_rub": 6500,
+         "_ozon_live_verified": True, "_ozon_live_available": True},
+        {"title": "Unknown stock", "_ozon_price_rub": 3900,
+         "_ozon_live_verified": False, "_ozon_live_available": None},
+        {"title": "Sold out", "_ozon_price_rub": 3900,
+         "_ozon_live_verified": False, "_ozon_live_available": False},
+        {"title": "Unknown price", "_ozon_price_rub": None,
+         "_ozon_live_verified": True, "_ozon_live_available": True},
+    ]
+    assert [item["title"] for item in core._filter_ozon_budget_results(items, 5000)] == [
+        "Within budget"
+    ]
+
+
+def test_ozon_route_does_not_recommend_when_live_verification_fails(monkeypatch):
+    items = [{
+        "title": "Unverified",
+        "url": "https://www.ozon.ru/product/headphones-123/",
+    }]
+    monkeypatch.setattr(core, "search_tavily", lambda query: items)
+    monkeypatch.setattr(core, "verify_ozon_product_results", lambda results: [
+        {**items[0], "_ozon_live_verified": False, "_ozon_live_available": None}
+    ])
     monkeypatch.setattr(
-        search, "_fetch_tavily_extract_contents",
-        lambda urls: pytest.fail("must not override explicit Ozon out-of-stock state"),
+        core, "generate_answer",
+        lambda *args, **kwargs: pytest.fail("unverified products must not reach the model"),
     )
-    result = search.verify_ozon_product_results([item])
-    assert result[0]["_ozon_live_status"] == "out_of_stock"
-
+    answer = core.process_message("Найди на Ozon наушники до 5000 рублей")
+    assert "не буду выдавать товар за подходящий" in answer
+    assert "ozon.ru/product/" not in answer
 
 
 def test_ozon_search_includes_configured_delivery_city(monkeypatch):
@@ -698,4 +665,5 @@ def test_ozon_context_labels_region_as_search_hint_not_verified_delivery(monkeyp
         {"title": "Headphones", "url": "https://www.ozon.ru/product/headphones-123456/"}
     ])
     assert "Регион поиска Ozon: Санкт-Петербург" in context
-    assert "региональная доставка отдельно не подтверждена" in context
+    assert "поисковая подсказка; доставка не подтверждена" in context
+    assert "Доставка: не проверена для адреса или пункта выдачи" in context
