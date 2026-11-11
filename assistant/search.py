@@ -394,51 +394,63 @@ def search_tavily(query):
         raise SearchError("Поиск не настроен.")
     is_news = _is_news_query(query)
     is_ozon = _is_ozon_product_query(query)
-    search_query = ("site:ozon.ru/product/ " + str(query).strip()) if is_ozon else query
-    payload = {
-        "api_key": api_key,
-        "query": search_query,
-        "max_results": 10,
-        "include_answer": False,
-    }
     date_range = requested_date_range(query)
-    if date_range:
-        payload.update(date_range)
-    if is_ozon:
-        # Restrict shopping results to Ozon product cards; do not mix marketplaces.
-        payload.update({
-            "search_depth": "advanced",
-            "include_domains": ["ozon.ru"],
-            "max_results": 6,
-            "include_raw_content": "markdown",
-        })
-    if is_news:
-        # News-specific retrieval and deeper relevance ranking cost more, but
-        # avoid returning social videos and category pages for article requests.
-        payload.update({
-            "topic": "news",
-            "search_depth": "advanced",
-            "include_published_date": True,
-            "exclude_domains": list(NEWS_EXCLUDED_DOMAINS),
-        })
-    body = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
-        TAVILY_URL, data=body,
-        headers={"Content-Type": "application/json", "User-Agent": "Klodd/1.0"},
-        method="POST",
+    search_queries = (
+        ["site:ozon.ru " + str(query).strip(),
+         "site:ozon.ru/product/ " + str(query).strip()]
+        if is_ozon else [query]
     )
-    try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            payload = json.load(response)
-    except urllib.error.HTTPError as exc:
-        raise SearchError("Tavily вернул ошибку HTTP " + str(exc.code) + ".") from None
-    except (urllib.error.URLError, TimeoutError, OSError):
-        raise SearchError("Tavily временно недоступен.") from None
-    except (ValueError, TypeError):
-        raise SearchError("Tavily вернул некорректный ответ.") from None
-    if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
-        raise SearchError("Tavily вернул некорректный ответ.")
-    return _filter_results_by_date(payload["results"], date_range)
+    combined_results = []
+    seen_urls = set()
+    for search_query in search_queries:
+        payload = {
+            "api_key": api_key,
+            "query": search_query,
+            "max_results": 10 if (is_ozon or is_news) else 6,
+            "include_answer": False,
+        }
+        if date_range:
+            payload.update(date_range)
+        if is_ozon:
+            payload.update({
+                "search_depth": "advanced",
+                "include_domains": ["ozon.ru"],
+                "include_raw_content": "markdown",
+            })
+        if is_news:
+            payload.update({
+                "topic": "news",
+                "search_depth": "advanced",
+                "include_published_date": True,
+                "exclude_domains": list(NEWS_EXCLUDED_DOMAINS),
+            })
+        body = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            TAVILY_URL, data=body,
+            headers={"Content-Type": "application/json", "User-Agent": "Klodd/1.0"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                response_payload = json.load(response)
+        except urllib.error.HTTPError as exc:
+            raise SearchError("Tavily вернул ошибку HTTP " + str(exc.code) + ".") from None
+        except (urllib.error.URLError, TimeoutError, OSError):
+            raise SearchError("Tavily временно недоступен.") from None
+        except (ValueError, TypeError):
+            raise SearchError("Tavily вернул некорректный ответ.") from None
+        if not isinstance(response_payload, dict) or not isinstance(response_payload.get("results"), list):
+            raise SearchError("Tavily вернул некорректный ответ.")
+        for item in _filter_results_by_date(response_payload["results"], date_range):
+            if not isinstance(item, dict):
+                continue
+            key = _url_key(item.get("url"))
+            if key and key in seen_urls:
+                continue
+            if key:
+                seen_urls.add(key)
+            combined_results.append(item)
+    return combined_results
 
 
 def _clean_text(value):
