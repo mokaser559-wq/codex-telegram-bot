@@ -375,8 +375,8 @@ def test_ozon_search_route_uses_product_filter_and_card_heading(monkeypatch):
 
 def test_ozon_price_is_extracted_only_when_unambiguous():
     item = {"content": "Цена 3 990 ₽"}
-    assert search._extract_ozon_price(item) == (3990, "поисковый фрагмент (не подтверждён карточкой)", False)
-    assert search._extract_ozon_price({"content": "Цена 3 990 ₽, старая цена 4 990 ₽"}) == (None, "", False)
+    assert search._extract_ozon_price(item) == (3990, "примерная цена из поискового фрагмента Tavily", False)
+    assert search._extract_ozon_price({"content": "Цена 3 990 ₽, старая цена 4 990 ₽"}) == (3990, "примерная цена из поискового фрагмента Tavily", False)
     assert search._extract_ozon_price({"raw_content": "Стоимость: 2 799 руб."}) == (
         2799, "извлечённое содержимое карточки", True
     )
@@ -432,12 +432,26 @@ def test_ozon_enrichment_keeps_unknown_price_explicit():
         {"title": "Ambiguous", "url": "https://ozon.ru/product/c-789/", "content": "3 900 ₽, старая цена 5 900 ₽"},
         {"title": "Snippet", "url": "https://ozon.ru/product/d-012/", "content": "Цена 3 900 ₽"},
     ])
-    assert [item["_ozon_price_rub"] for item in items] == [4500, None, None, 3900]
+    assert [item["_ozon_price_rub"] for item in items] == [4500, None, 3900, 3900]
     assert [item["_ozon_price_verified"] for item in items] == [True, False, False, False]
     context = search.format_ozon_search_context(items, today="2026-11-12")
     assert "Цена: 4500 ₽" in context
-    assert "не подтверждена; в поисковом фрагменте указано 3900 ₽" in context
-    assert context.count("не удалось однозначно подтвердить") == 2
+    assert "примерно 3900 ₽ (поисковый фрагмент Tavily)" in context
+    assert context.count("не удалось однозначно подтвердить") == 1
+    assert "примерно 3900 ₽ (поисковый фрагмент Tavily)" in context
+
+
+def test_ozon_snippet_price_is_presented_as_approximate_not_exact():
+    item = search.enrich_ozon_product_results([{
+        "title": "Anker headphones",
+        "url": "https://ozon.ru/product/anker-headphones-123/",
+        "content": "Anker headphones, цена 4 700 ₽, старая цена 6 000 ₽",
+    }])[0]
+    assert item["_ozon_price_rub"] == 4700
+    assert item["_ozon_price_verified"] is False
+    context = search.format_ozon_search_context([item])
+    assert "примерно 4700 ₽" in context
+    assert "подтверждена по содержимому карточки" not in context
 
 
 def test_ozon_budget_route_keeps_unknown_separately_and_excludes_over_budget(monkeypatch):
@@ -471,5 +485,5 @@ def test_ozon_budget_route_shows_unknown_price_cards_without_claiming_budget_fit
     answer = core.process_message("Найди на Ozon наушники до 5000 рублей")
     assert "Unknown" in calls[0]["search_context"]
     assert "Over budget" not in calls[0]["search_context"]
-    assert "не называй товары с неизвестной ценой подходящими" in calls[0]["search_notice"].lower()
+    assert "цена из поискового фрагмента примерная" in calls[0]["search_notice"].lower()
     assert "Карточки товаров на Ozon" in answer
