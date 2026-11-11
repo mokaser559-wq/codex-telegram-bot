@@ -23,13 +23,19 @@ SEARCH_SYSTEM_RULE = (
 
 _LISTING_SEGMENTS = {
     "tag", "tags", "category", "categories", "topic", "topics",
-    "search", "author", "authors", "archive", "archives",
+    "search", "author", "authors", "archive", "archives", "theme",
 }
 _LISTING_PAGES = {
     "news", "latest", "all", "index", "home", "search", "archive",
     "archives", "category", "categories", "tag", "tags", "topic",
     "topics", "articles", "blog", "press",
 }
+
+
+NEWS_EXCLUDED_DOMAINS = (
+    "youtube.com", "youtu.be", "facebook.com", "fb.watch",
+    "instagram.com", "tiktok.com", "x.com", "twitter.com", "vk.com",
+)
 
 
 class SearchError(Exception):
@@ -49,16 +55,31 @@ def needs_search(text):
     return any(term in text for term in terms)
 
 
+def _is_news_query(query):
+    text = str(query or "").lower()
+    return any(term in text for term in ("новост", "событи", "последн", "news", "breaking"))
+
+
 def search_tavily(query):
     api_key = os.environ.get("TAVILY_API_KEY", "").strip()
     if not api_key:
         raise SearchError("Поиск не настроен.")
-    body = json.dumps({
+    is_news = _is_news_query(query)
+    payload = {
         "api_key": api_key,
         "query": query,
         "max_results": 10,
         "include_answer": False,
-    }).encode("utf-8")
+    }
+    if is_news:
+        # News-specific retrieval and deeper relevance ranking cost more, but
+        # avoid returning social videos and category pages for article requests.
+        payload.update({
+            "topic": "news",
+            "search_depth": "advanced",
+            "exclude_domains": list(NEWS_EXCLUDED_DOMAINS),
+        })
+    body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         TAVILY_URL, data=body,
         headers={"Content-Type": "application/json", "User-Agent": "Klodd/1.0"},
@@ -108,7 +129,11 @@ def _is_article_url(value):
     if not url:
         return False
     try:
-        segments = [part.lower() for part in urlsplit(url).path.split("/") if part]
+        parsed = urlsplit(url)
+        host = (parsed.hostname or "").lower()
+        if any(host == domain or host.endswith("." + domain) for domain in NEWS_EXCLUDED_DOMAINS):
+            return False
+        segments = [part.lower() for part in parsed.path.split("/") if part]
     except ValueError:
         return False
     if not segments:
