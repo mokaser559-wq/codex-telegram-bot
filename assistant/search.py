@@ -215,7 +215,8 @@ def enrich_ozon_product_results(results):
         enriched.append({
             **item,
             "_ozon_price_rub": price,
-            "_ozon_price_source": source,\n            "_ozon_price_verified": verified,
+            "_ozon_price_source": source,
+            "_ozon_price_verified": verified,
         })
     return enriched
 
