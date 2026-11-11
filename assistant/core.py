@@ -6,6 +6,7 @@ from assistant.search import (
     filter_ozon_product_results,
     _is_ozon_product_query,
     format_search_context,
+    format_ozon_product_answer,
     format_source_links,
     needs_search,
     search_tavily,
@@ -58,12 +59,9 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
             results = filter_ozon_product_results(raw_results) if is_ozon else filter_search_results(raw_results)
         except SearchError:
             return "Сейчас не удалось выполнить поиск, поэтому я не могу надёжно проверить актуальные сведения. Попробуй повторить запрос позже."
+        if is_ozon:
+            return format_ozon_product_answer(results, text)
         if not results:
-            if is_ozon:
-                return (
-                    "Не удалось найти прямые карточки товаров на Ozon по этому запросу. "
-                    "Попробуй уточнить название, бренд или характеристики товара."
-                )
             return (
                 "Поиск не нашёл прямых ссылок на отдельные публикации. "
                 "Я не хочу выдавать страницы разделов или главные страницы за источники."

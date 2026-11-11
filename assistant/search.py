@@ -1,5 +1,6 @@
 """Tavily search helpers. Search results are always treated as untrusted data."""
 import calendar
+from decimal import Decimal, InvalidOperation
 import json
 import os
 import re
@@ -164,6 +165,94 @@ def filter_ozon_product_results(results):
         seen.add(key)
         filtered.append(item)
     return filtered
+
+
+_OZON_PRICE_RE = re.compile(
+    r"(?<!\d)(?P<amount>(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d{3,7})(?:[,.]\d{1,2})?)\s*(?:₽|руб(?:\.|лей|ля|ль)?|RUB)(?!\w)",
+    re.IGNORECASE,
+)
+_OZON_BUDGET_RE = re.compile(
+    r"(?:до|не\s+дороже|максимум|макс\.?|бюджет(?:\s+до)?|в\s+пределах)\s*[:=]?\s*"
+    r"(?P<amount>(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d{3,7})(?:[,.]\d{1,2})?)",
+    re.IGNORECASE,
+)
+
+
+def _decimal_amount(raw):
+    normalized = re.sub(r"[ \u00a0\u202f]", "", str(raw)).replace(",", ".")
+    try:
+        value = Decimal(normalized)
+    except (InvalidOperation, ValueError):
+        return None
+    return value if value.is_finite() and value > 0 else None
+
+
+def parse_ozon_budget(query):
+    """Return an explicit ruble budget; never infer it from unrelated numbers."""
+    match = _OZON_BUDGET_RE.search(str(query or ""))
+    return _decimal_amount(match.group("amount")) if match else None
+
+
+def extract_ozon_price(item):
+    """Return one unambiguous price explicitly marked in rubles, otherwise None."""
+    if not isinstance(item, dict):
+        return None
+    text = " ".join(_clean_text(item.get(key)) for key in ("title", "content"))
+    amounts = {
+        value for match in _OZON_PRICE_RE.finditer(text)
+        if (value := _decimal_amount(match.group("amount"))) is not None
+    }
+    return next(iter(amounts)) if len(amounts) == 1 else None
+
+
+def _format_rubles(value):
+    rendered = f"{value:,.2f}".rstrip("0").rstrip(".")
+    return rendered.replace(",", " ").replace(".", ",")
+
+
+def format_ozon_product_answer(results, query):
+    """Build a factual product list; only verified snippet prices can satisfy a budget."""
+    products = []
+    for item in filter_ozon_product_results(results):
+        title = _clean_text(item.get("title")) or "Товар без названия"
+        url = _valid_http_url(item.get("url"))
+        products.append({"title": title, "url": url, "price": extract_ozon_price(item)})
+
+    if not products:
+        return (
+            "Не удалось найти прямые карточки товаров на Ozon по этому запросу. "
+            "Попробуй уточнить название, бренд или характеристики товара."
+        )
+
+    budget = parse_ozon_budget(query)
+    if budget is not None:
+        confirmed = [item for item in products if item["price"] is not None and item["price"] <= budget]
+        unknown = [item for item in products if item["price"] is None]
+        if confirmed:
+            lines = [
+                f"Подтверждённые товары в бюджете до {_format_rubles(budget)} ₽ ({len(confirmed)}):"
+            ]
+            for item in confirmed[:5]:
+                lines.append(f"- {item['title']} — {_format_rubles(item['price'])} ₽")
+                lines.append(f"  {item['url']}")
+        else:
+            lines = [
+                f"Не удалось подтвердить ни одной карточки с ценой до {_format_rubles(budget)} ₽.",
+                "Не буду считать товары с неизвестной или неоднозначной ценой подходящими под бюджет.",
+            ]
+        if unknown:
+            lines.extend(("", "Цена не найдена или в источнике указано несколько сумм — бюджет не подтверждён:"))
+            for item in unknown[:5]:
+                lines.append(f"- {item['title']}")
+                lines.append(f"  {item['url']}")
+        return "\n".join(lines) + "\n\nЦена взята из поискового фрагмента и может отличаться от текущей цены на Ozon."
+
+    lines = ["Карточки товаров на Ozon (цены указаны только при однозначном подтверждении в поисковом фрагменте):"]
+    for item in products[:5]:
+        price = f" — {_format_rubles(item['price'])} ₽" if item["price"] is not None else " — цена не подтверждена"
+        lines.append(f"- {item['title']}{price}")
+        lines.append(f"  {item['url']}")
+    return "\n".join(lines) + "\n\nЦены из поисковых фрагментов могут отличаться от текущих цен на Ozon."
 
 
 def search_tavily(query):

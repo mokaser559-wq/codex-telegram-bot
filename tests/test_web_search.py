@@ -341,7 +341,7 @@ def test_ozon_filter_keeps_only_unique_product_cards():
     assert [item["title"] for item in search.filter_ozon_product_results(results)] == ["Product"]
 
 
-def test_ozon_search_route_uses_product_filter_and_card_heading(monkeypatch):
+def test_ozon_search_route_uses_deterministic_price_answer(monkeypatch):
     results = [
         {
             "title": "Наушники Example",
@@ -354,16 +354,74 @@ def test_ozon_search_route_uses_product_filter_and_card_heading(monkeypatch):
             "content": "not a product card",
         },
     ]
-    calls = []
     monkeypatch.setattr(core, "search_tavily", lambda query: results)
     monkeypatch.setattr(
         core, "generate_answer",
-        lambda *args, **kwargs: calls.append((args, kwargs)) or "Подходящий товар",
+        lambda *args, **kwargs: pytest.fail("Ozon answer must be deterministic"),
     )
     answer = core.process_message("Найди на Ozon беспроводные наушники")
-    assert "Цена 3 990 ₽" in calls[0][1]["search_context"]
-    assert "not a product card" not in calls[0][1]["search_context"]
-    assert answer.endswith(
-        "Карточки товаров на Ozon:\n"
-        "- Наушники Example: https://www.ozon.ru/product/headphones-123456/"
-    )
+    assert "Наушники Example — 3 990 ₽" in answer
+    assert "Bluetooth 5.3" not in answer
+    assert "Category" not in answer
+
+
+def test_ozon_price_requires_explicit_ruble_amount_and_single_value():
+    assert search.extract_ozon_price({"content": "Цена 4 990 ₽"}) == search.Decimal("4990")
+    assert search.extract_ozon_price({"content": "Цена 4 990,50 ₽"}) == search.Decimal("4990.50")
+    assert search.extract_ozon_price({"content": "Стоимость 3 499 рублей"}) == search.Decimal("3499")
+    assert search.extract_ozon_price({"content": "Цена от 4 990 ₽"}) == search.Decimal("4990")
+    assert search.extract_ozon_price({"content": "Цена 4 990"}) is None
+    assert search.extract_ozon_price({"content": "4 990 ₽ вместо 5 990 ₽"}) is None
+    assert search.extract_ozon_price({"content": "Артикул 123456789"}) is None
+
+
+def test_ozon_budget_parser_only_uses_explicit_budget_phrases():
+    assert search.parse_ozon_budget("Найди на Ozon до 5 000 рублей") == search.Decimal("5000")
+    assert search.parse_ozon_budget("не дороже 4 500 ₽") == search.Decimal("4500")
+    assert search.parse_ozon_budget("до 4 500,50 рублей") == search.Decimal("4500.50")
+    assert search.parse_ozon_budget("Наушники за 5000 рублей") is None
+
+
+def test_ozon_budget_answer_only_lists_confirmed_prices_as_matching():
+    results = [
+        {"title": "Вариант A", "url": "https://ozon.ru/product/a-123/", "content": "Цена 4 990 ₽"},
+        {"title": "Вариант B", "url": "https://ozon.ru/product/b-123/", "content": "Цена не указана"},
+        {"title": "Вариант C", "url": "https://ozon.ru/product/c-123/", "content": "4 990 ₽ вместо 6 990 ₽"},
+        {"title": "Вариант D", "url": "https://ozon.ru/product/d-123/", "content": "Цена 5 500 ₽"},
+    ]
+    answer = search.format_ozon_product_answer(results, "Найди на Ozon до 5 000 рублей")
+    assert "Подтверждённые товары в бюджете до 5 000 ₽ (1)" in answer
+    assert "Вариант A — 4 990 ₽" in answer
+    assert "Вариант B" in answer
+    assert "Вариант C" in answer
+    assert "Вариант D" not in answer
+    assert "неизвестной или неоднозначной ценой" not in answer
+
+
+def test_ozon_budget_answer_does_not_claim_unknown_prices_are_in_budget():
+    results = [
+        {"title": "Вариант A", "url": "https://ozon.ru/product/a-123/", "content": "Цена не указана"},
+    ]
+    answer = search.format_ozon_product_answer(results, "Найди на Ozon до 5 000 рублей")
+    assert "Не удалось подтвердить ни одной карточки" in answer
+    assert "Не буду считать товары" in answer
+    assert "Вариант A" in answer
+
+
+def test_ozon_without_budget_shows_unknown_price_honestly():
+    results = [
+        {"title": "Вариант A", "url": "https://ozon.ru/product/a-123/", "content": "Цена 4 990 ₽"},
+        {"title": "Вариант B", "url": "https://ozon.ru/product/b-123/", "content": "Описание без цены"},
+    ]
+    answer = search.format_ozon_product_answer(results, "Найди на Ozon наушники")
+    assert "Вариант A — 4 990 ₽" in answer
+    assert "Вариант B — цена не подтверждена" in answer
+
+
+def test_ozon_budget_answer_reports_no_match_for_over_budget_products():
+    results = [
+        {"title": "Вариант A", "url": "https://ozon.ru/product/a-123/", "content": "Цена 5 500 ₽"},
+    ]
+    answer = search.format_ozon_product_answer(results, "Найди на Ozon до 5 000 рублей")
+    assert "Не удалось подтвердить ни одной карточки" in answer
+    assert "Вариант A" not in answer
