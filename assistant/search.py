@@ -325,7 +325,7 @@ def format_ozon_debug_report(results):
                 + "; длина " + str(len(raw))
                 + "; ценовых совпадений " + str(len(price_matches))
                 + "; маркеры зачёркивания "
-                + ("есть" if re.search(r"<(?:del|s|strike)\\b|~~", raw, re.IGNORECASE) else "нет"),
+                + ("есть" if re.search(r"<(?:del|s|strike)\b|~~", raw, re.IGNORECASE) else "нет"),
         ))
         if price_matches:
             excerpts = []
@@ -337,7 +337,7 @@ def format_ozon_debug_report(results):
         lines.append("Фрагмент raw_content: " + detail[:520])
         if snippet:
             lines.append("Поисковый фрагмент: " + " ".join(snippet.split())[:180])
-    report = "\\n".join(lines)
+    report = "\n".join(lines)
     return report[:3600]
 
 def search_tavily(query):
