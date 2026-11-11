@@ -176,16 +176,27 @@ _PRICE_PATTERN = re.compile(
 
 
 def _prices_in_text(value):
-    text = str(value or "")
+    text = " ".join(str(value or "").split())
     return {
-        int(re.sub(r"[ \u00a0\u202f]", "", match))
-        for match in _PRICE_PATTERN.findall(text)
+        int(re.sub(r"[ \u00a0\u202f]", "", match.group(1)))
+        for match in _PRICE_PATTERN.finditer(text)
     }
+
+
+def _labeled_prices_in_text(value):
+    """Ignore delivery fees and unrelated amounts on the product page."""
+    text = " ".join(str(value or "").split())
+    prices = set()
+    for match in _PRICE_PATTERN.finditer(text):
+        prefix = text[max(0, match.start() - 60):match.start()]
+        if re.search(r"(?:цена|стоимость|price)[^.!?]{0,45}$", prefix, re.IGNORECASE):
+            prices.add(int(re.sub(r"[ \u00a0\u202f]", "", match.group(1))))
+    return prices
 
 
 def _extract_ozon_price(item):
     """Return a price and whether it came from extracted product-page content."""
-    page_prices = _prices_in_text(item.get("raw_content"))
+    page_prices = _labeled_prices_in_text(item.get("raw_content"))
     if len(page_prices) == 1:
         return next(iter(page_prices)), "извлечённое содержимое карточки", True
     if len(page_prices) > 1:
