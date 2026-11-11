@@ -303,3 +303,67 @@ def test_providers_receive_search_context_and_system_rule(monkeypatch, provider)
     assert messages[1] == {"role": "user", "content": "Earlier"}
     assert "Search notice" in messages[-1]["content"]
     assert "result" in messages[-1]["content"]
+
+
+
+def test_ozon_product_query_uses_domain_restricted_advanced_search(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "fake-key")
+    captured = {}
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self): return b'{"results":[]}'
+
+    def fake_urlopen(request, timeout):
+        captured.update(json.loads(request.data))
+        return Response()
+
+    monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
+    search.search_tavily("Найди на Ozon беспроводные наушники до 5000 рублей")
+    assert captured["query"].startswith("site:ozon.ru/product ")
+    assert captured["include_domains"] == ["ozon.ru"]
+    assert captured["search_depth"] == "advanced"
+    assert captured["max_results"] == 10
+    assert "topic" not in captured
+
+
+def test_ozon_filter_keeps_only_unique_product_cards():
+    results = [
+        {"title": "Product", "url": "https://www.ozon.ru/product/headphones-123456/"},
+        {"title": "Duplicate", "url": "https://ozon.ru/product/headphones-123456/?utm_source=search"},
+        {"title": "Category", "url": "https://www.ozon.ru/category/headphones/"},
+        {"title": "Search", "url": "https://www.ozon.ru/search/?text=headphones"},
+        {"title": "Other marketplace", "url": "https://www.wildberries.ru/catalog/123/detail.aspx"},
+        {"title": "Reviews", "url": "https://www.ozon.ru/product/headphones-123456/reviews/"},
+        {"title": "Homepage", "url": "https://www.ozon.ru/"},
+    ]
+    assert [item["title"] for item in search.filter_ozon_product_results(results)] == ["Product"]
+
+
+def test_ozon_search_route_uses_product_filter_and_card_heading(monkeypatch):
+    results = [
+        {
+            "title": "Наушники Example",
+            "url": "https://www.ozon.ru/product/headphones-123456/",
+            "content": "Цена 3 990 ₽, Bluetooth 5.3",
+        },
+        {
+            "title": "Category",
+            "url": "https://www.ozon.ru/category/headphones/",
+            "content": "not a product card",
+        },
+    ]
+    calls = []
+    monkeypatch.setattr(core, "search_tavily", lambda query: results)
+    monkeypatch.setattr(
+        core, "generate_answer",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or "Подходящий товар",
+    )
+    answer = core.process_message("Найди на Ozon беспроводные наушники")
+    assert "Цена 3 990 ₽" in calls[0][1]["search_context"]
+    assert "not a product card" not in calls[0][1]["search_context"]
+    assert answer.endswith(
+        "Карточки товаров на Ozon:\n"
+        "- Наушники Example: https://www.ozon.ru/product/headphones-123456/"
+    )

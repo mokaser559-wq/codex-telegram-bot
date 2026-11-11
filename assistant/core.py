@@ -3,6 +3,8 @@ from assistant.router import route_message
 from assistant.search import (
     SearchError,
     filter_search_results,
+    filter_ozon_product_results,
+    _is_ozon_product_query,
     format_search_context,
     format_source_links,
     needs_search,
@@ -51,10 +53,17 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
 
     if needs_search(text):
         try:
-            results = filter_search_results(search_tavily(text))
+            raw_results = search_tavily(text)
+            is_ozon = _is_ozon_product_query(text)
+            results = filter_ozon_product_results(raw_results) if is_ozon else filter_search_results(raw_results)
         except SearchError:
             return "Сейчас не удалось выполнить поиск, поэтому я не могу надёжно проверить актуальные сведения. Попробуй повторить запрос позже."
         if not results:
+            if is_ozon:
+                return (
+                    "Не удалось найти прямые карточки товаров на Ozon по этому запросу. "
+                    "Попробуй уточнить название, бренд или характеристики товара."
+                )
             return (
                 "Поиск не нашёл прямых ссылок на отдельные публикации. "
                 "Я не хочу выдавать страницы разделов или главные страницы за источники."
@@ -69,7 +78,10 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
                 "список источников в конце ответа — ссылки будут добавлены автоматически."
             ),
         )
-        source_links = format_source_links(results, answer)
+        source_links = format_source_links(
+            results, answer,
+            heading="Карточки товаров на Ozon" if is_ozon else "Ссылки на найденные публикации",
+        )
         if source_links:
             answer = answer.rstrip() + "\n\n" + source_links
         return answer
