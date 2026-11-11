@@ -474,19 +474,18 @@ def test_ozon_budget_route_keeps_unknown_separately_and_excludes_over_budget(mon
     assert "Карточки товаров на Ozon" in answer
 
 
-def test_ozon_budget_route_shows_unknown_price_cards_without_claiming_budget_fit(monkeypatch):
+def test_ozon_budget_route_excludes_unknown_and_over_budget_cards(monkeypatch):
     results = [
         {"title": "Unknown", "url": "https://ozon.ru/product/c-789/", "content": "Наушники Bluetooth"},
         {"title": "Over budget", "url": "https://ozon.ru/product/b-456/", "content": "Цена 6 500 ₽"},
     ]
     monkeypatch.setattr(core, "search_tavily", lambda query: results)
     calls = []
-    monkeypatch.setattr(core, "generate_answer", lambda *args, **kwargs: calls.append(kwargs) or "Есть карточка с неизвестной ценой.")
+    monkeypatch.setattr(core, "generate_answer", lambda *args, **kwargs: calls.append(kwargs) or "Не должно вызываться.")
     answer = core.process_message("Найди на Ozon наушники до 5000 рублей")
-    assert "Unknown" not in calls[0]["search_context"]
-    assert "Over budget" not in calls[0]["search_context"]
-    assert "цена из поискового фрагмента примерная" in calls[0]["search_notice"].lower()
-    assert "Карточки товаров на Ozon" in answer
+    assert calls == []
+    assert "Не нашёл на Ozon товаров" in answer
+    assert "ozon.ru/product/" not in answer
 
 
 @pytest.mark.parametrize("status_text", [
