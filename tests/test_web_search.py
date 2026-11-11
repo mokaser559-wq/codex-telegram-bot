@@ -364,6 +364,6 @@ def test_ozon_search_route_uses_product_filter_and_card_heading(monkeypatch):
     assert "Цена 3 990 ₽" in calls[0][1]["search_context"]
     assert "not a product card" not in calls[0][1]["search_context"]
     assert answer.endswith(
-        "Карточки товаров на Ozon:\\n"
+        "Карточки товаров на Ozon:\n"
         "- Наушники Example: https://www.ozon.ru/product/headphones-123456/"
     )
