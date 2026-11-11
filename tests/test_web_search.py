@@ -336,12 +336,12 @@ def test_ozon_filter_keeps_unique_cards_and_normalizes_review_urls():
         {"title": "Category", "url": "https://www.ozon.ru/category/headphones/"},
         {"title": "Search", "url": "https://www.ozon.ru/search/?text=headphones"},
         {"title": "Other marketplace", "url": "https://www.wildberries.ru/catalog/123/detail.aspx"},
-        {"title": "Reviews", "url": "https://www.ozon.ru/product/headphones-123456/reviews/"},
+        {"title": "Reviews", "url": "https://www.ozon.ru/product/other-headphones-789/reviews/"},
         {"title": "Homepage", "url": "https://www.ozon.ru/"},
     ]
     filtered = search.filter_ozon_product_results(results)
     assert [item["title"] for item in filtered] == ["Product", "Reviews"]
-    assert filtered[1]["url"] == "https://www.ozon.ru/product/headphones-123456/"
+    assert filtered[1]["url"] == "https://www.ozon.ru/product/other-headphones-789/"
 
 
 def test_ozon_search_route_uses_product_filter_and_card_heading(monkeypatch):
