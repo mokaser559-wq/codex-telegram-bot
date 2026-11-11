@@ -336,11 +336,97 @@ def _jsonld_product_offers(html):
     return offers
 
 
+def _composer_product_offers(payload):
+    """Read price and explicit stock flags from Ozon's storefront product widget."""
+    if not isinstance(payload, dict):
+        return []
+    widget_states = payload.get("widgetStates")
+    if not isinstance(widget_states, dict):
+        return []
+    offers = []
+    for widget_name, raw_widget in widget_states.items():
+        if "websale" not in str(widget_name).lower():
+            continue
+        try:
+            widget = json.loads(raw_widget) if isinstance(raw_widget, str) else raw_widget
+        except (ValueError, TypeError):
+            continue
+        for node in _walk_json_objects(widget):
+            tracking = node.get("cellTrackingInfo")
+            product = tracking.get("product") if isinstance(tracking, dict) else None
+            if not isinstance(product, dict):
+                continue
+            availability = next((
+                product[key] for key in (
+                    "isAvailable", "is_available", "available",
+                    "isAvailableForOrder", "availableForSale",
+                ) if isinstance(product.get(key), bool)
+            ), None)
+            price_value = product.get("finalPrice") or product.get("price")
+            if isinstance(price_value, (int, float)):
+                price = price_value
+            else:
+                prices = _prices_in_text(price_value)
+                price = next(iter(prices)) if len(prices) == 1 else None
+            if availability is None or not isinstance(price, (int, float)) or price <= 0:
+                continue
+            offers.append({
+                "title": _clean_text(product.get("title")),
+                "price": price,
+                "available": availability,
+                "availability": "instock" if availability else "outofstock",
+            })
+    return offers
+
+
+def _fetch_ozon_composer_offers(url):
+    """Use Ozon's storefront JSON endpoint when it is reachable."""
+    parsed = urlsplit(url)
+    endpoint = "https://www.ozon.ru/api/composer-api.bx/page/json/v2?" + urlencode({
+        "url": parsed.path,
+    })
+    request = urllib.request.Request(
+        endpoint,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            ),
+            "Referer": url,
+            "Accept": "application/json,text/plain,*/*",
+            "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.7",
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            payload = json.load(response)
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError, TypeError):
+        return []
+    return _composer_product_offers(payload)
+
+
 def _verify_ozon_card(item):
     """Fetch the live Ozon card; fail closed if price or stock cannot be proven."""
     url = _canonical_ozon_product_url(item.get("url"))
     if not url:
         return {**item, "_ozon_live_verified": False, "_ozon_live_status": "invalid_url"}
+    composer_offers = _fetch_ozon_composer_offers(url)
+    if composer_offers:
+        available = [offer for offer in composer_offers if offer["available"]]
+        if not available:
+            return {**item, "_ozon_live_verified": False, "_ozon_live_available": False, "_ozon_live_status": "out_of_stock"}
+        offer = min(available, key=lambda candidate: candidate["price"])
+        return {
+            **item,
+            "title": offer["title"] or item.get("title") or "Товар Ozon",
+            "_ozon_price_rub": offer["price"],
+            "_ozon_price_source": "актуальная карточка Ozon",
+            "_ozon_price_verified": True,
+            "_ozon_live_verified": True,
+            "_ozon_live_available": True,
+            "_ozon_live_status": "in_stock",
+        }
     request = urllib.request.Request(
         url,
         headers={
