@@ -375,7 +375,7 @@ def test_ozon_search_route_uses_product_filter_and_card_heading(monkeypatch):
 
 def test_ozon_price_is_extracted_only_when_unambiguous():
     item = {"content": "Цена 3 990 ₽"}
-    assert search._extract_ozon_price(item) == (3990, "поисковый фрагмент (не подтверждён карточкой)", False)
+    assert search._extract_ozon_price(item) == (3990, "примерная цена из поискового фрагмента Tavily", False)
     assert search._extract_ozon_price({"content": "Цена 3 990 ₽, старая цена 4 990 ₽"}) == (3990, "примерная цена из поискового фрагмента Tavily", False)
     assert search._extract_ozon_price({"raw_content": "Стоимость: 2 799 руб."}) == (
         2799, "извлечённое содержимое карточки", True
@@ -436,7 +436,7 @@ def test_ozon_enrichment_keeps_unknown_price_explicit():
     assert [item["_ozon_price_verified"] for item in items] == [True, False, False, False]
     context = search.format_ozon_search_context(items, today="2026-11-12")
     assert "Цена: 4500 ₽" in context
-    assert "не подтверждена; в поисковом фрагменте указано 3900 ₽" in context
+    assert "примерно 3900 ₽ (поисковый фрагмент Tavily)" in context
     assert context.count("не удалось однозначно подтвердить") == 1
     assert "примерно 3900 ₽ (поисковый фрагмент Tavily)" in context
 
