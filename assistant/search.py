@@ -183,24 +183,64 @@ def _prices_in_text(value):
     }
 
 
-def _labeled_prices_in_text(value):
-    """Ignore delivery fees and unrelated amounts on the product page."""
-    text = " ".join(str(value or "").split())
+def _remove_struck_prices(text):
+    """Remove prices explicitly marked as old/struck through in extracted markup."""
+    text = re.sub(
+        r"(?is)<(?:del|s|strike)\b[^>]*>.*?</(?:del|s|strike)\s*>",
+        " ",
+        text,
+    )
+    return re.sub(r"~~.*?~~", " ", text)
+
+
+def _prices_outside_nonproduct_context(value):
+    """Find visible prices while excluding delivery and installment amounts."""
+    text = _remove_struck_prices(" ".join(str(value or "").split()))
     prices = set()
     for match in _PRICE_PATTERN.finditer(text):
-        prefix = text[max(0, match.start() - 60):match.start()]
-        if re.search(r"(?:цена|стоимость|price)[^.!?]{0,45}$", prefix, re.IGNORECASE):
-            prices.add(int(re.sub(r"[ \u00a0\u202f]", "", match.group(1))))
+        prefix = text[max(0, match.start() - 55):match.start()]
+        suffix = text[match.end():match.end() + 35]
+        if re.search(r"(?:доставк|курьер|пункт\s+выдачи)[^.!?]{0,45}$", prefix, re.IGNORECASE):
+            continue
+        if re.search(r"(?:от\s*)?$", prefix, re.IGNORECASE) and re.search(
+            r"^(?:\s*/\s*мес|\s+в\s+месяц|\s+ежемесячно)", suffix, re.IGNORECASE
+        ):
+            continue
+        if re.search(r"(?:рассрочк|плат[её]ж)[^.!?]{0,35}$", prefix, re.IGNORECASE):
+            continue
+        prices.add(int(re.sub(r"[ \u00a0\u202f]", "", match.group(1))))
     return prices
 
 
+def _labeled_prices_in_text(value):
+    """Find explicitly labeled product prices without borrowing labels across lines."""
+    text = _remove_struck_prices(str(value or ""))
+    prices = set()
+    for line in text.splitlines():
+        line = " ".join(line.split())
+        for match in _PRICE_PATTERN.finditer(line):
+            prefix = line[max(0, match.start() - 60):match.start()]
+            if re.search(r"(?:цена|стоимость|price)[^.!?]{0,45}$", prefix, re.IGNORECASE):
+                if re.search(r"(?:доставк|старая|прежняя)[^.!?]{0,35}$", prefix, re.IGNORECASE):
+                    continue
+                prices.add(int(re.sub(r"[ \u00a0\u202f]", "", match.group(1))))
+    return prices
+
 def _extract_ozon_price(item):
-    """Return a price and whether it came from extracted product-page content."""
-    page_prices = _labeled_prices_in_text(item.get("raw_content"))
+    """Return a price only when extracted product-page content identifies it safely."""
+    raw_content = item.get("raw_content")
+    page_prices = _labeled_prices_in_text(raw_content)
     if len(page_prices) == 1:
         return next(iter(page_prices)), "извлечённое содержимое карточки", True
     if len(page_prices) > 1:
         return None, "", False
+
+    # Ozon often renders the current price without a textual label. Accept that
+    # format only when exactly one non-delivery, non-installment price remains
+    # in the extracted card content. A struck-through old price is ignored.
+    visible_prices = _prices_outside_nonproduct_context(raw_content)
+    if len(visible_prices) == 1:
+        return next(iter(visible_prices)), "единственная цена в содержимом карточки", True
     snippet_prices = _prices_in_text(item.get("content"))
     if len(snippet_prices) == 1:
         return next(iter(snippet_prices)), "поисковый фрагмент (не подтверждён карточкой)", False

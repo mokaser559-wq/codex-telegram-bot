@@ -391,6 +391,38 @@ def test_extract_ozon_budget(query, expected):
     assert search.extract_ozon_budget(query) == expected
 
 
+def test_ozon_accepts_single_unlabeled_price_from_card_content():
+    assert search._extract_ozon_price({
+        "raw_content": "Anker Soundcore P42i\n4 502 ₽\n-41%"
+    }) == (4502, "единственная цена в содержимом карточки", True)
+
+
+def test_ozon_ignores_struck_old_price_when_current_price_is_clear():
+    assert search._extract_ozon_price({
+        "raw_content": "4 502 ₽ ~~7 747 ₽~~ -41%"
+    }) == (4502, "единственная цена в содержимом карточки", True)
+    assert search._extract_ozon_price({
+        "raw_content": "4 502 ₽ <del>7 747 ₽</del> -41%"
+    }) == (4502, "единственная цена в содержимом карточки", True)
+
+
+@pytest.mark.parametrize("content", [
+    "4 502 ₽\n7 747 ₽",
+    "Доставка 299 ₽",
+])
+def test_ozon_does_not_guess_between_unlabeled_or_delivery_prices(content):
+    assert search._extract_ozon_price({"raw_content": content}) == (None, "", False)
+
+
+@pytest.mark.parametrize("content", [
+    "Цена 4 502 ₽\nДоставка 299 ₽",
+    "Цена 4 502 ₽\nПлатёж 375 ₽/мес",
+])
+def test_ozon_keeps_labeled_product_price_separate_from_delivery_and_installments(content):
+    assert search._extract_ozon_price({"raw_content": content}) == (
+        4502, "извлечённое содержимое карточки", True
+    )
+
 def test_ozon_enrichment_keeps_unknown_price_explicit():
     items = search.enrich_ozon_product_results([
         {"title": "Known", "url": "https://ozon.ru/product/a-123/", "content": "Цена 4 500 ₽", "raw_content": "Цена: 4 500 ₽"},
