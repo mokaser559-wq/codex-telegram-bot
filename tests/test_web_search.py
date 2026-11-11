@@ -407,7 +407,7 @@ def test_ozon_ignores_struck_old_price_when_current_price_is_clear():
 
 
 @pytest.mark.parametrize("content", [
-    "4 502 ₽\\n7 747 ₽",
+    "4 502 ₽\n7 747 ₽",
     "Доставка 299 ₽",
 ])
 def test_ozon_does_not_guess_between_unlabeled_or_delivery_prices(content):
@@ -415,8 +415,8 @@ def test_ozon_does_not_guess_between_unlabeled_or_delivery_prices(content):
 
 
 @pytest.mark.parametrize("content", [
-    "Цена 4 502 ₽\\nДоставка 299 ₽",
-    "Цена 4 502 ₽\\nПлатёж 375 ₽/мес",
+    "Цена 4 502 ₽\nДоставка 299 ₽",
+    "Цена 4 502 ₽\nПлатёж 375 ₽/мес",
 ])
 def test_ozon_keeps_labeled_product_price_separate_from_delivery_and_installments(content):
     assert search._extract_ozon_price({"raw_content": content}) == (
