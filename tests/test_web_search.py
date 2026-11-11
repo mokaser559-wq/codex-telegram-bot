@@ -404,7 +404,7 @@ def test_ozon_budget_answer_does_not_claim_unknown_prices_are_in_budget():
     ]
     answer = search.format_ozon_product_answer(results, "Найди на Ozon до 5 000 рублей")
     assert "Не удалось подтвердить ни одной карточки" in answer
-    assert "не буду считать товары" in answer
+    assert "Не буду считать товары" in answer
     assert "Вариант A" in answer
 
 
