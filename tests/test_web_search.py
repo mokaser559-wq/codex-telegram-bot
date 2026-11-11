@@ -656,3 +656,71 @@ def test_ozon_composer_widget_does_not_guess_missing_stock():
         }
     }
     assert search._composer_product_offers(payload) == []
+
+
+def test_ozon_tavily_extract_parser_requires_price_and_explicit_stock():
+    offer = search._tavily_extracted_card_offer(
+        "Anker Soundcore P42i\\nЦена: 4 502 ₽\\nНаличие: В наличии",
+        "Anker Soundcore P42i",
+    )
+    assert offer == {
+        "title": "Anker Soundcore P42i",
+        "price": 4502,
+        "available": True,
+        "availability": "instock",
+    }
+
+
+@pytest.mark.parametrize("page", [
+    "Цена: 4 502 ₽",
+    "Цена: 4 502 ₽\\nНет в наличии",
+    "Цена: 4 502 ₽\\nДоставка 299 ₽\\n7 747 ₽",
+    "Товар закончился",
+])
+def test_ozon_tavily_extract_parser_rejects_unverified_stock_or_ambiguous_price(page):
+    assert search._tavily_extracted_card_offer(page, "Headphones") is None
+
+
+def test_ozon_tavily_extract_fetches_known_cards_with_advanced_depth(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key")
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["payload"] = json.loads(request.data)
+        return io.BytesIO(json.dumps({
+            "results": [{
+                "url": "https://www.ozon.ru/product/headphones-123/",
+                "raw_content": "Цена: 4 502 ₽\\nВ наличии",
+            }],
+            "failed_results": [],
+        }).encode())
+
+    monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
+    result = search._fetch_tavily_extract_contents([
+        "https://www.ozon.ru/product/headphones-123/"
+    ])
+    assert captured["url"] == "https://api.tavily.com/extract"
+    assert captured["payload"]["extract_depth"] == "advanced"
+    assert captured["payload"]["urls"] == ["https://www.ozon.ru/product/headphones-123/"]
+    assert result[search._url_key("https://www.ozon.ru/product/headphones-123/")].startswith("Цена:")
+
+
+def test_ozon_verification_uses_extract_when_direct_card_verification_fails(monkeypatch):
+    item = {
+        "title": "Anker Soundcore P42i",
+        "url": "https://www.ozon.ru/product/headphones-123/",
+    }
+    monkeypatch.setattr(search, "_verify_ozon_card", lambda candidate: {
+        **candidate,
+        "_ozon_live_verified": False,
+        "_ozon_live_status": "unreachable",
+    })
+    monkeypatch.setattr(search, "_fetch_tavily_extract_contents", lambda urls: {
+        search._url_key(urls[0]): "Anker Soundcore P42i\\nЦена: 4 502 ₽\\nВ наличии"
+    })
+    verified = search.verify_ozon_product_results([item])
+    assert verified[0]["_ozon_live_verified"] is True
+    assert verified[0]["_ozon_live_available"] is True
+    assert verified[0]["_ozon_price_rub"] == 4502
+    assert "Tavily" in verified[0]["_ozon_price_source"]
