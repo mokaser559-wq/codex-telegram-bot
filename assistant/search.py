@@ -540,8 +540,8 @@ def format_ozon_search_context(results, today=None):
         price = item.get("_ozon_price_rub")
         verified = item.get("_ozon_price_verified") is True
         price_text = (
-            str(price) + " ₽ (проверена непосредственно по карточке Ozon; цена может измениться)"
-            if verified and isinstance(price, int) and price > 0
+            str(int(price)) + " ₽ (проверена непосредственно по карточке Ozon; цена может измениться)"
+            if verified and isinstance(price, (int, float)) and not isinstance(price, bool) and price > 0
             else (
                 "примерно " + str(price) + " ₽ (поисковый фрагмент Tavily)"
                 if isinstance(price, int) and price > 0
@@ -607,7 +607,7 @@ def format_ozon_debug_report(results):
             "URL: " + (url or str(item.get("url") or "не указан")[:180]),
             "Фильтр: " + reason,
             "Цена: " + (
-                str(parsed_price.get("_ozon_price_rub")) + " ₽; подтверждена"
+                str(parsed_price.get("_ozon_price_rub")) + " ₽; найдена в raw_content, не live-проверка"
                 if parsed_price.get("_ozon_price_verified") is True
                 else "не подтверждена"
             ),
