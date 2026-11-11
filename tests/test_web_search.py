@@ -8,16 +8,52 @@ import assistant.providers as providers
 import assistant.search as search
 
 
-def test_format_search_context_contains_only_date_and_result_data():
+def test_format_search_context_contains_publication_date_and_exact_url():
     formatted = search.format_search_context([
-        {"title": "Example", "url": "https://example.test", "content": "Snippet"}
+        {
+            "title": "Example",
+            "url": "https://example.test/article",
+            "published_date": "2026-11-10",
+            "content": "Snippet",
+        }
     ], today="2026-11-11")
-    assert formatted == (
-        "Дата поиска: 2026-11-11\nЗаголовок: Example\n"
-        "URL: https://example.test\nФрагмент: Snippet"
+    assert "Дата поиска: 2026-11-11" in formatted
+    assert "Заголовок: Example" in formatted
+    assert "Дата публикации: 2026-11-10" in formatted
+    assert "URL: https://example.test/article" in formatted
+    assert "Фрагмент: Snippet" in formatted
+
+
+def test_missing_publication_date_is_explicit():
+    formatted = search.format_search_context([
+        {"title": "Example", "url": "https://example.test/article", "content": "Snippet"}
+    ], today="2026-11-11")
+    assert "Дата публикации: не указана" in formatted
+
+
+def test_source_links_use_exact_tavily_urls_and_skip_invalid_urls():
+    links = search.format_source_links([
+        {
+            "title": "Article A",
+            "url": "https://example.test/a",
+            "published_date": "2026-11-10",
+        },
+        {"title": "Bad URL", "url": "javascript:alert(1)"},
+        {"title": "Article B", "url": "https://example.test/b"},
+        {"title": "No URL"},
+    ])
+    assert links == (
+        "Ссылки на найденные материалы:\n"
+        "- Article A — 2026-11-10: https://example.test/a\n"
+        "- Article B: https://example.test/b"
     )
-    assert "инструкц" not in formatted.lower()
-    assert "недовер" not in formatted.lower()
+    assert "javascript:" not in links
+
+
+def test_source_links_empty_when_no_valid_urls():
+    assert search.format_source_links([
+        {"title": "No URL", "url": "not-a-url"}
+    ]) == ""
 
 
 def test_ordinary_message_and_stt_correction_do_not_search(monkeypatch):
@@ -27,18 +63,29 @@ def test_ordinary_message_and_stt_correction_do_not_search(monkeypatch):
     assert providers.correct_transcription("Привет, как дела?") == "Привет, как дела?"
 
 
-def test_search_route_preserves_history_and_passes_context(monkeypatch):
+def test_search_route_preserves_history_and_appends_deterministic_sources(monkeypatch):
     history = [{"role": "user", "text": "Предыдущий вопрос"}]
     calls = []
-    monkeypatch.setattr(core, "search_tavily", lambda query: [
-        {"title": "Now", "url": "https://example.test", "content": "Current fact"}
-    ])
-    monkeypatch.setattr(core, "generate_answer", lambda *args, **kwargs: calls.append((args, kwargs)) or "ok")
-    assert core.process_message("Какие последние новости сегодня?", history) == "ok"
+    results = [
+        {
+            "title": "Official article",
+            "url": "https://openai.com/index/example/",
+            "published_date": "2026-11-10",
+            "content": "Current fact",
+        }
+    ]
+    monkeypatch.setattr(core, "search_tavily", lambda query: results)
+    monkeypatch.setattr(core, "generate_answer", lambda *args, **kwargs: calls.append((args, kwargs)) or "Ответ")
+    answer = core.process_message("Какие последние новости сегодня?", history)
     args, kwargs = calls[0]
     assert args == ("Какие последние новости сегодня?", history)
     assert "Current fact" in kwargs["search_context"]
+    assert "2026-11-10" in kwargs["search_context"]
     assert kwargs["search_notice"]
+    assert answer.endswith(
+        "Ссылки на найденные материалы:\n"
+        "- Official article — 2026-11-10: https://openai.com/index/example/"
+    )
 
 
 @pytest.mark.parametrize("status", [434, 500])
@@ -80,6 +127,7 @@ def test_providers_receive_search_context_and_system_rule(monkeypatch, provider)
     messages = captured["messages"]
     assert messages[0]["role"] == "system"
     assert search.SEARCH_SYSTEM_RULE in messages[0]["content"]
+    assert "точный URL" in messages[0]["content"]
     assert messages[1] == {"role": "user", "content": "Earlier"}
     assert "Search notice" in messages[-1]["content"]
     assert "result" in messages[-1]["content"]
