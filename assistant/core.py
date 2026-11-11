@@ -6,7 +6,7 @@ from assistant.search import (
     SearchError,
     filter_search_results,
     filter_ozon_product_results,
-    enrich_ozon_product_results,
+    verify_ozon_product_results,
     extract_ozon_budget,
     format_ozon_search_context,
     format_ozon_debug_report,
@@ -19,22 +19,17 @@ from assistant.search import (
 
 
 def _filter_ozon_budget_results(results, budget):
-    """Keep only explicitly priced, within-budget Ozon cards that are not marked unavailable."""
-    unavailable_pattern = re.compile(
-        r"нет\s+в\s+наличии|нет\s+в\s+продаже|товар\s+закончился|"
-        r"закончился|распродан|узнать\s+о\s+поступлении|out\s+of\s+stock|sold\s+out",
-        re.IGNORECASE,
-    )
+    """Keep only cards with a live, explicit Ozon price and in-stock state."""
     filtered = []
     for item in results:
         price = item.get("_ozon_price_rub")
-        if not isinstance(price, int) or isinstance(price, bool) or price <= 0 or price > budget:
+        if item.get("_ozon_live_verified") is not True:
             continue
-        searchable_text = " ".join(
-            str(item.get(field) or "")
-            for field in ("title", "content", "raw_content")
-        )
-        if unavailable_pattern.search(searchable_text):
+        if item.get("_ozon_live_available") is not True:
+            continue
+        if not isinstance(price, (int, float)) or isinstance(price, bool) or price <= 0:
+            continue
+        if budget is not None and price > budget:
             continue
         filtered.append(item)
     return filtered
@@ -92,10 +87,10 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
             raw_results = search_tavily(text)
             is_ozon = _is_ozon_product_query(text)
             if is_ozon:
-                results = enrich_ozon_product_results(raw_results)
                 budget = extract_ozon_budget(text)
-                if budget is not None:
-                    results = _filter_ozon_budget_results(results, budget)
+                results = _filter_ozon_budget_results(
+                    verify_ozon_product_results(raw_results), budget
+                )
             else:
                 results = filter_search_results(raw_results)
         except SearchError:
@@ -105,13 +100,13 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
                 budget = extract_ozon_budget(text)
                 if budget is not None:
                     return (
-                        f"Не нашёл на Ozon товаров с однозначно подтверждённой ценой до {budget} ₽. "
-                        "Не буду выдавать товары с неизвестной ценой или ценой выше бюджета за подходящие. "
-                        "Проверь актуальную стоимость непосредственно в карточках Ozon."
+                        f"Не удалось подтвердить на карточках Ozon товары до {budget} ₽ с актуальной ценой и наличием. "
+                        "Я не буду рекомендовать товары по устаревшим поисковым ценам или без подтверждённого наличия. "
+                        "Возможно, Ozon временно не отдаёт данные карточек."
                     )
                 return (
-                    "Не удалось найти прямые карточки товаров на Ozon по этому запросу. "
-                    "Попробуй уточнить название, бренд или характеристики товара."
+                    "Не удалось подтвердить актуальную цену и наличие товаров на карточках Ozon. "
+                    "Поисковая выдача сама по себе не считается подтверждением. Попробуй повторить позже."
                 )
             return (
                 "Поиск не нашёл прямых ссылок на отдельные публикации. "
