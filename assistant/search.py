@@ -299,46 +299,68 @@ def format_ozon_search_context(results, today=None):
 
 
 def format_ozon_debug_report(results):
-    """Show a bounded, credential-free view of Tavily's raw Ozon extraction."""
-    items = filter_ozon_product_results(results)
+    """Show bounded URL-filter diagnostics and price extraction for Tavily Ozon results."""
+    if not isinstance(results, list):
+        return "Диагностика Tavily / Ozon: неожиданный формат ответа."
+    accepted = filter_ozon_product_results(results)
+    accepted_urls = {_url_key(item.get("url")) for item in accepted}
     lines = [
         "Диагностика Tavily / Ozon",
-        "Карточек в ответе Tavily: " + str(len(results) if isinstance(results, list) else 0),
-        "Прямых карточек после фильтра: " + str(len(items)),
+        "Карточек в ответе Tavily: " + str(len(results)),
+        "Прямых карточек после фильтра: " + str(len(accepted)),
     ]
-    for index, item in enumerate(items[:6], 1):
-        enriched = enrich_ozon_product_results([item])
-        parsed = enriched[0] if enriched else {}
+    for index, item in enumerate(results[:6], 1):
+        if not isinstance(item, dict):
+            lines.extend(("", str(index) + ". Некорректный элемент результата"))
+            continue
+        url = _valid_http_url(item.get("url"))
+        parsed_ok = _is_ozon_product_url(url)
+        if not url:
+            reason = "URL отсутствует или некорректен"
+        elif not parsed_ok:
+            try:
+                parsed = urlsplit(url)
+                host = (parsed.hostname or "").lower()
+                segments = [part for part in parsed.path.split("/") if part]
+                if host != "ozon.ru" and not host.endswith(".ozon.ru"):
+                    reason = "домен не Ozon: " + host
+                elif not segments or segments[0].lower() != "product":
+                    reason = "это не путь /product/: " + parsed.path[:100]
+                else:
+                    reason = "структура URL не распознана как карточка"
+            except ValueError:
+                reason = "URL не удалось разобрать"
+        elif _url_key(url) not in accepted_urls:
+            reason = "дубликат ссылки"
+        else:
+            reason = "принята фильтром"
         raw = str(item.get("raw_content") or "")
         snippet = str(item.get("content") or "")
         price_matches = list(_PRICE_PATTERN.finditer(raw))
+        enriched = enrich_ozon_product_results([item]) if parsed_ok else []
+        parsed_price = enriched[0] if enriched else {}
         lines.extend((
             "",
-            str(index) + ". " + _clean_text(item.get("title"))[:110],
-            "URL: " + _valid_http_url(item.get("url")),
-            "Распознано: " + (
-                str(parsed.get("_ozon_price_rub")) + " ₽; подтверждено"
-                if parsed.get("_ozon_price_verified") is True
-                else "цена не подтверждена"
+            str(index) + ". " + _clean_text(item.get("title"))[:100],
+            "URL: " + (url or str(item.get("url") or "не указан")[:180]),
+            "Фильтр: " + reason,
+            "Цена: " + (
+                str(parsed_price.get("_ozon_price_rub")) + " ₽; подтверждена"
+                if parsed_price.get("_ozon_price_verified") is True
+                else "не подтверждена"
             ),
-            "В raw_content: " + ("есть" if raw else "пусто")
+            "raw_content: " + ("есть" if raw else "пусто")
                 + "; длина " + str(len(raw))
                 + "; ценовых совпадений " + str(len(price_matches))
-                + "; маркеры зачёркивания "
-                + ("есть" if re.search(r"<(?:del|s|strike)\b|~~", raw, re.IGNORECASE) else "нет"),
+                + "; зачёркивание "
+                + ("есть" if re.search(r"<(?:del|s|strike)\\b|~~", raw, re.IGNORECASE) else "нет"),
         ))
-        if price_matches:
-            excerpts = []
-            for match in price_matches[:4]:
-                excerpts.append(raw[max(0, match.start() - 100):min(len(raw), match.end() + 100)])
-            detail = " | ".join(" ".join(part.split()) for part in excerpts)
-        else:
-            detail = " ".join(raw[:420].split()) or "raw_content отсутствует"
-        lines.append("Фрагмент raw_content: " + detail[:520])
-        if snippet:
-            lines.append("Поисковый фрагмент: " + " ".join(snippet.split())[:180])
-    report = "\n".join(lines)
-    return report[:3600]
+        if raw:
+            lines.append("Фрагмент: " + " ".join(raw[:300].split())[:300])
+        elif snippet:
+            lines.append("Фрагмент поиска: " + " ".join(snippet.split())[:220])
+    return "\\n".join(lines)[:3600]
+
 
 def search_tavily(query):
     api_key = os.environ.get("TAVILY_API_KEY", "").strip()
