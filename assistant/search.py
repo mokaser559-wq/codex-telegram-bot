@@ -28,7 +28,8 @@ _LISTING_SEGMENTS = {
 _LISTING_PAGES = {
     "news", "latest", "all", "index", "home", "search", "archive",
     "archives", "category", "categories", "tag", "tags", "topic",
-    "topics", "articles", "blog", "press",
+    "topics", "articles", "blog", "press", "theme", "video", "videos",
+    "shorts", "reels", "watch",
 }
 
 
@@ -57,7 +58,7 @@ def needs_search(text):
 
 def _is_news_query(query):
     text = str(query or "").lower()
-    return any(term in text for term in ("новост", "событи", "последн", "news", "breaking"))
+    return any(term in text for term in ("новост", "событи", "news", "breaking"))
 
 
 def search_tavily(query):
