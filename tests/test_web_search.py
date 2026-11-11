@@ -129,6 +129,45 @@ def test_general_tavily_query_keeps_general_search_settings(monkeypatch):
     assert "exclude_domains" not in captured
 
 
+
+def test_explicit_month_range_is_sent_to_tavily_and_filters_out_of_range_results(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "fake-key")
+    monkeypatch.setattr(
+        search, "requested_date_range",
+        lambda query: {"start_date": "2026-11-01", "end_date": "2026-11-11"},
+    )
+    captured = {}
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self):
+            return json.dumps({"results": [
+                {"title": "September", "url": "https://example.test/september", "published_date": "2026-09-30"},
+                {"title": "November", "url": "https://example.test/november", "published_date": "2026-11-10"},
+                {"title": "Unknown date", "url": "https://example.test/unknown"},
+            ]}).encode()
+
+    def fake_urlopen(request, timeout):
+        captured.update(json.loads(request.data))
+        return Response()
+
+    monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
+    results = search.search_tavily("Новости ИИ за ноябрь 2026")
+    assert captured["start_date"] == "2026-11-01"
+    assert captured["end_date"] == "2026-11-11"
+    assert [item["title"] for item in results] == ["November", "Unknown date"]
+
+
+def test_requested_date_range_understands_russian_month_names():
+    assert search.requested_date_range(
+        "Новости ИИ за ноябрь 2026 года", today=search.date(2026, 11, 11)
+    ) == {"start_date": "2026-11-01", "end_date": "2026-11-11"}
+    assert search.requested_date_range(
+        "Новости ИИ за сентябрь 2026", today=search.date(2026, 11, 11)
+    ) == {"start_date": "2026-09-01", "end_date": "2026-09-30"}
+
+
 def test_filter_handles_non_list_payload_safely():
     assert search.filter_search_results(None) == []
     assert search.filter_search_results({"url": "https://example.test/story"}) == []
