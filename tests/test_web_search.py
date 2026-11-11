@@ -104,6 +104,7 @@ def test_tavily_news_query_uses_news_topic_and_advanced_depth(monkeypatch):
     search.search_tavily("Найди последние новости об искусственном интеллекте")
     assert captured["topic"] == "news"
     assert captured["search_depth"] == "advanced"
+    assert captured["include_published_date"] is True
     assert captured["max_results"] == 10
     assert "youtube.com" in captured["exclude_domains"]
     assert "facebook.com" in captured["exclude_domains"]
@@ -155,17 +156,17 @@ def test_explicit_month_range_is_sent_to_tavily_and_filters_out_of_range_results
     monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
     results = search.search_tavily("Новости ИИ за ноябрь 2026")
     assert captured["start_date"] == "2026-11-01"
-    assert captured["end_date"] == "2026-11-11"
+    assert captured["end_date"] == "2026-11-12"
     assert [item["title"] for item in results] == ["November", "Unknown date"]
 
 
 def test_requested_date_range_understands_russian_month_names():
     assert search.requested_date_range(
         "Новости ИИ за ноябрь 2026 года", today=search.date(2026, 11, 11)
-    ) == {"start_date": "2026-11-01", "end_date": "2026-11-11"}
+    ) == {"start_date": "2026-11-01", "end_date": "2026-11-12"}
     assert search.requested_date_range(
         "Новости ИИ за сентябрь 2026", today=search.date(2026, 11, 11)
-    ) == {"start_date": "2026-09-01", "end_date": "2026-09-30"}
+    ) == {"start_date": "2026-09-01", "end_date": "2026-10-01"}
 
 
 def test_filter_handles_non_list_payload_safely():
