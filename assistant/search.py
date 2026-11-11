@@ -169,7 +169,7 @@ def filter_ozon_product_results(results):
 
 
 _OZON_PRICE_RE = re.compile(
-    r"(?<!\d)(?P<amount>\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d{3,7})(?:[,.]\d{1,2})?\s*(?:₽|руб(?:\.|лей|ля|ль)?|RUB)(?!\w)",
+    r"(?<!\d)(?P<amount>(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d{3,7})(?:[,.]\d{1,2})?)\s*(?:₽|руб(?:\.|лей|ля|ль)?|RUB)(?!\w)",
     re.IGNORECASE,
 )
 _OZON_BUDGET_RE = re.compile(
@@ -231,8 +231,8 @@ def format_ozon_product_answer(results, query):
         unknown = [item for item in products if item["price"] is None]
         if confirmed:
             lines = [
-                f"Подтверждённые товары в бюджете ({len(confirmed)}): "
-                f"и не превышает {_format_rubles(budget)} ₽:"
+                f"Подтверждённые товары в бюджете до {_format_rubles(budget)} ₽ ({len(confirmed)}):"
+                
             ]
             for item in confirmed[:5]:
                 lines.append(f"- {item['title']} — {_format_rubles(item['price'])} ₽")
