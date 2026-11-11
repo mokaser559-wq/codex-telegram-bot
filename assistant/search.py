@@ -126,7 +126,7 @@ def _is_news_query(query):
 def _is_ozon_product_query(query):
     """Detect explicit Ozon shopping intent without hijacking general product questions."""
     text = str(query or "").lower()
-    return bool(re.search(r"(?<!\\w)(?:ozon|озон)(?!\\w)", text))
+    return bool(re.search(r"(?<!\w)(?:ozon|озон)(?!\w)", text))
 
 
 def _is_ozon_product_url(value):
