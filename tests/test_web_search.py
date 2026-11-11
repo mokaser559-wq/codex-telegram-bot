@@ -435,7 +435,8 @@ def test_ozon_enrichment_keeps_unknown_price_explicit():
     assert [item["_ozon_price_verified"] for item in items] == [True, False, False]
     context = search.format_ozon_search_context(items, today="2026-11-12")
     assert "Цена: 4500 ₽" in context
-    assert context.count("не удалось однозначно подтвердить") == 2
+    assert "не подтверждена; в поисковом фрагменте указано 3900 ₽" in context
+    assert context.count("не удалось однозначно подтвердить") == 1
 
 
 def test_ozon_budget_route_keeps_unknown_separately_and_excludes_over_budget(monkeypatch):
