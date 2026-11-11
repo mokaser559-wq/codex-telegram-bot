@@ -231,7 +231,7 @@ def format_ozon_product_answer(results, query):
         unknown = [item for item in products if item["price"] is None]
         if confirmed:
             lines = [
-                f"Нашёл {len(confirmed)} карточек, цена которых подтверждена поисковым фрагментом "
+                f"Подтверждённые товары в бюджете ({len(confirmed)}): "
                 f"и не превышает {_format_rubles(budget)} ₽:"
             ]
             for item in confirmed[:5]:
