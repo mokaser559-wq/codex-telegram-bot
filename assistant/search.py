@@ -167,7 +167,6 @@ def filter_ozon_product_results(results):
     return filtered
 
 
-
 _OZON_PRICE_RE = re.compile(
     r"(?<!\d)(?P<amount>(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d{3,7})(?:[,.]\d{1,2})?)\s*(?:₽|руб(?:\.|лей|ля|ль)?|RUB)(?!\w)",
     re.IGNORECASE,
@@ -232,7 +231,6 @@ def format_ozon_product_answer(results, query):
         if confirmed:
             lines = [
                 f"Подтверждённые товары в бюджете до {_format_rubles(budget)} ₽ ({len(confirmed)}):"
-                
             ]
             for item in confirmed[:5]:
                 lines.append(f"- {item['title']} — {_format_rubles(item['price'])} ₽")
@@ -255,6 +253,7 @@ def format_ozon_product_answer(results, query):
         lines.append(f"- {item['title']}{price}")
         lines.append(f"  {item['url']}")
     return "\n".join(lines) + "\n\nЦены из поисковых фрагментов могут отличаться от текущих цен на Ozon."
+
 
 def search_tavily(query):
     api_key = os.environ.get("TAVILY_API_KEY", "").strip()
