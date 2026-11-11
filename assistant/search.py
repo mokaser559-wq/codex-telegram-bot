@@ -338,4 +338,4 @@ def format_source_links(results, answer="", heading="Ссылки на найд�
         lines.append("- " + label + ": " + url)
     if not lines:
         return ""
-    return "Ссылки на найденные публикации:\n" + "\n".join(lines)
+    return heading + ":\n" + "\n".join(lines)
