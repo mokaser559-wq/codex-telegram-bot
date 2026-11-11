@@ -1833,3 +1833,60 @@ def test_outbox_stale_recovery_race_does_not_duplicate_send(monkeypatch):
     assert sends == [(22, "reply")]
     assert db.status == "sent"
     assert db.claim_token is None
+
+
+
+def test_main_waits_for_previous_polling_instance_during_render_handover(monkeypatch, tmp_path):
+    token_file = tmp_path / "bot_token"
+    token_file.write_text("local-test-token", encoding="utf-8")
+    monkeypatch.setattr(bridge, "TOKEN_FILE", token_file)
+    monkeypatch.delenv("TELEGRAM_MODE", raising=False)
+    monkeypatch.delenv("TELEGRAM_WEBHOOK_SECRET", raising=False)
+    monkeypatch.setenv("PORT", "8080")
+    monkeypatch.setattr(bridge, "POLLING_LOCK_RETRY_SECONDS", 0.001)
+    monkeypatch.setattr(bridge, "_install_shutdown_handlers", lambda stop: None)
+
+    class LockContext:
+        def __enter__(self): return threading.Event()
+        def __exit__(self, *args): return False
+
+    class Store:
+        lock_calls = 0
+        def __init__(self, **kwargs): pass
+        def polling_lock(self, stop):
+            self.lock_calls += 1
+            if self.lock_calls == 1:
+                raise storage.StorageConfigurationError("Другой polling-процесс уже запущен")
+            return LockContext()
+        def initialize(self, path): pass
+        def recover_stale(self): pass
+        def begin_runtime(self): pass
+        def import_legacy_history(self, path): return "absent"
+
+    class Server:
+        shutdown_called = False
+        waited = False
+        closed = False
+        def shutdown(self): self.shutdown_called = True
+        def wait_for_requests(self): self.waited = True
+        def server_close(self): self.closed = True
+
+    stores = []
+    def make_store(**kwargs):
+        result = Store()
+        stores.append(result)
+        return result
+
+    server = Server()
+    monkeypatch.setattr(bridge, "PostgresStore", make_store)
+    monkeypatch.setattr(bridge, "start_http_server", lambda *args: server)
+    monkeypatch.setattr(bridge, "shutdown_http_server", lambda value: (
+        value.shutdown(), value.wait_for_requests(), value.server_close()
+    ))
+    monkeypatch.setattr(bridge, "poll_loop", lambda store, stop, fatal: stop.set())
+    monkeypatch.setattr(bridge, "worker_loop", lambda store, stop, fatal, mode: stop.set())
+
+    bridge.main()
+
+    assert stores[0].lock_calls == 2
+    assert server.shutdown_called and server.waited and server.closed
