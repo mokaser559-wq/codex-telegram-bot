@@ -11,4 +11,5 @@ WORKDIR /home/node/app
 COPY --chown=node:node bridge.py start.sh ./
 COPY --chown=node:node assistant ./assistant
 COPY --chown=node:node migrations ./migrations
+EXPOSE 10000
 CMD ["sh", "start.sh"]
