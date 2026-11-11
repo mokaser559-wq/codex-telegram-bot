@@ -476,13 +476,102 @@ def _verify_ozon_card(item):
     }
 
 
+
+def _fetch_tavily_extract_contents(urls):
+    """Fetch known Ozon cards through Tavily Extract when direct Ozon access is blocked."""
+    api_key = os.environ.get("TAVILY_API_KEY", "").strip()
+    if not api_key or not urls:
+        return {}
+    request = urllib.request.Request(
+        "https://api.tavily.com/extract",
+        data=json.dumps({
+            "api_key": api_key,
+            "urls": urls[:20],
+            "extract_depth": "advanced",
+            "format": "markdown",
+            "query": "Актуальная цена самого товара в рублях и явный статус наличия товара",
+        }).encode("utf-8"),
+        headers={"Content-Type": "application/json", "User-Agent": "Klodd/1.0"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=35) as response:
+            payload = json.load(response)
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError, TypeError):
+        return {}
+    extracted = {}
+    for result in payload.get("results", []) if isinstance(payload, dict) else []:
+        if not isinstance(result, dict):
+            continue
+        key = _url_key(result.get("url"))
+        raw = result.get("raw_content")
+        if key and isinstance(raw, str) and raw.strip():
+            extracted[key] = raw
+    return extracted
+
+
+def _tavily_extracted_card_offer(raw_content, fallback_title=""):
+    """Accept only one unambiguous RUB price plus an explicit current stock statement."""
+    text = str(raw_content or "")
+    lowered = text.lower().replace("ё", "е")
+    unavailable = re.search(
+        r"нет\s+в\s+наличии|товар\s+закончился|закончился|распродан|"
+        r"out\s+of\s+stock|sold\s+out|недоступен\s+для\s+заказа",
+        lowered,
+    )
+    if unavailable:
+        return None
+    available = re.search(
+        r"в\s+наличии|есть\s+в\s+наличии|доступен\s+к\s+заказу|"
+        r"можно\s+заказать|осталось\s+\d+|in\s+stock|limited\s+availability",
+        lowered,
+    )
+    if not available:
+        return None
+    prices = _labeled_prices_in_text(text)
+    if not prices:
+        prices = _prices_outside_nonproduct_context(text)
+    if len(prices) != 1:
+        return None
+    title_match = re.search(r"(?im)^\s*(?:название|товар|product)\s*:\s*(.+)$", text)
+    title = _clean_text(title_match.group(1)) if title_match else _clean_text(fallback_title)
+    return {
+        "title": title,
+        "price": next(iter(prices)),
+        "available": True,
+        "availability": "instock",
+    }
+
 def verify_ozon_product_results(results):
-    """Verify a small candidate set against live Ozon product pages."""
+    """Verify Ozon cards directly, then use Tavily Extract as a live-page fallback."""
     candidates = filter_ozon_product_results(results)[:8]
     if not candidates:
         return []
     with ThreadPoolExecutor(max_workers=4) as executor:
-        return list(executor.map(_verify_ozon_card, candidates))
+        verified = list(executor.map(_verify_ozon_card, candidates))
+    fallback = [
+        item for item in verified
+        if item.get("_ozon_live_verified") is not True
+    ]
+    extracted = _fetch_tavily_extract_contents([item["url"] for item in fallback])
+    by_url = {_url_key(item["url"]): item for item in fallback}
+    for key, raw_content in extracted.items():
+        item = by_url.get(key)
+        if item is None:
+            continue
+        offer = _tavily_extracted_card_offer(raw_content, item.get("title"))
+        if offer is None:
+            continue
+        item.update({
+            "title": offer["title"] or item.get("title") or "Товар Ozon",
+            "_ozon_price_rub": offer["price"],
+            "_ozon_price_source": "актуальное извлечение карточки Ozon через Tavily",
+            "_ozon_price_verified": True,
+            "_ozon_live_verified": True,
+            "_ozon_live_available": True,
+            "_ozon_live_status": "in_stock",
+        })
+    return verified
 
 
 def enrich_ozon_product_results(results):
