@@ -73,7 +73,7 @@ def requested_date_range(query, today=None):
     text = str(query or "").lower()
     today = today or date.today()
     month_pattern = "|".join(sorted(MONTH_PATTERNS, key=len, reverse=True))
-    match = re.search(r"\\b(" + month_pattern + r"\\w*)\\s+(20\\d{2})\\b", text)
+    match = re.search(r"\b(" + month_pattern + r"\w*)\s+(20\d{2})\b", text)
     if not match:
         return None
     month_token = match.group(1)
@@ -97,6 +97,8 @@ def _filter_results_by_date(results, date_range):
     start = date.fromisoformat(date_range["start_date"])
     end = date.fromisoformat(date_range["end_date"])
     for item in results:
+        if not isinstance(item, dict):
+            continue
         raw_date = str(item.get("published_date") or "")[:10]
         try:
             published = date.fromisoformat(raw_date)
