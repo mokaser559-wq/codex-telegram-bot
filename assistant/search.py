@@ -603,6 +603,7 @@ def remove_ozon_budget_constraint(query):
         r"\\s*(?:₽|руб(?:\\.|лей|ля)?)?"
     )
     text = re.sub(pattern, " ", text)
+    text = re.sub(r"\\s*,\\s*(?:,\\s*)+", ", ", text)
     return " ".join(text.split()).strip(" ,.;:-")
 
 def extract_ozon_budget(query):
