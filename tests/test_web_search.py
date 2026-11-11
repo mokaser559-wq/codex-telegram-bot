@@ -324,7 +324,8 @@ def test_ozon_product_query_uses_domain_restricted_advanced_search(monkeypatch):
     assert captured["query"].startswith("site:ozon.ru/product ")
     assert captured["include_domains"] == ["ozon.ru"]
     assert captured["search_depth"] == "advanced"
-    assert captured["max_results"] == 10
+    assert captured["max_results"] == 6
+    assert captured["include_raw_content"] == "markdown"
     assert "topic" not in captured
 
 
@@ -367,3 +368,66 @@ def test_ozon_search_route_uses_product_filter_and_card_heading(monkeypatch):
         "Карточки товаров на Ozon:\n"
         "- Наушники Example: https://www.ozon.ru/product/headphones-123456/"
     )
+
+
+
+def test_ozon_price_is_extracted_only_when_unambiguous():
+    item = {"content": "Цена 3 990 ₽"}
+    assert search._extract_ozon_price(item) == (3990, "поисковый фрагмент")
+    assert search._extract_ozon_price({"content": "Цена 3 990 ₽, старая цена 4 990 ₽"}) == (None, "")
+    assert search._extract_ozon_price({"raw_content": "Стоимость: 2 799 руб."}) == (
+        2799, "извлечённое содержимое карточки"
+    )
+
+
+@pytest.mark.parametrize(("query", "expected"), [
+    ("Найди на Ozon наушники до 5000 рублей", 5000),
+    ("Ozon, бюджетом до 12 000 ₽", 12000),
+    ("Подбери на Ozon не дороже 3500", 3500),
+    ("Найди на Ozon наушники", None),
+])
+def test_extract_ozon_budget(query, expected):
+    assert search.extract_ozon_budget(query) == expected
+
+
+def test_ozon_enrichment_keeps_unknown_price_explicit():
+    items = search.enrich_ozon_product_results([
+        {"title": "Known", "url": "https://ozon.ru/product/a-123/", "content": "Цена 4 500 ₽"},
+        {"title": "Unknown", "url": "https://ozon.ru/product/b-456/", "content": "Беспроводные наушники"},
+        {"title": "Ambiguous", "url": "https://ozon.ru/product/c-789/", "content": "3 900 ₽, старая цена 5 900 ₽"},
+    ])
+    assert [item["_ozon_price_rub"] for item in items] == [4500, None, None]
+    context = search.format_ozon_search_context(items, today="2026-11-12")
+    assert "Цена: 4500 ₽" in context
+    assert context.count("не удалось однозначно подтвердить") == 2
+
+
+def test_ozon_budget_route_excludes_unknown_and_over_budget_products(monkeypatch):
+    results = [
+        {"title": "Under budget", "url": "https://ozon.ru/product/a-123/", "content": "Цена 4 500 ₽"},
+        {"title": "Over budget", "url": "https://ozon.ru/product/b-456/", "content": "Цена 6 500 ₽"},
+        {"title": "Unknown", "url": "https://ozon.ru/product/c-789/", "content": "Наушники Bluetooth"},
+    ]
+    calls = []
+    monkeypatch.setattr(core, "search_tavily", lambda query: results)
+    monkeypatch.setattr(
+        core, "generate_answer",
+        lambda *args, **kwargs: calls.append(kwargs) or "Подходящий товар за 4500 ₽",
+    )
+    answer = core.process_message("Найди на Ozon наушники до 5000 рублей")
+    assert "Under budget" in calls[0]["search_context"]
+    assert "Over budget" not in calls[0]["search_context"]
+    assert "Unknown" not in calls[0]["search_context"]
+    assert "Карточки товаров на Ozon" in answer
+
+
+def test_ozon_budget_route_refuses_unverified_results(monkeypatch):
+    results = [
+        {"title": "Unknown", "url": "https://ozon.ru/product/c-789/", "content": "Наушники Bluetooth"},
+        {"title": "Over budget", "url": "https://ozon.ru/product/b-456/", "content": "Цена 6 500 ₽"},
+    ]
+    monkeypatch.setattr(core, "search_tavily", lambda query: results)
+    monkeypatch.setattr(core, "generate_answer", lambda *args, **kwargs: pytest.fail("model must not receive unverified products"))
+    answer = core.process_message("Найди на Ozon наушники до 5000 рублей")
+    assert "не буду выдавать товары" in answer
+    assert "5000 ₽" in answer
