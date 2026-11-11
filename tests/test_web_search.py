@@ -430,13 +430,14 @@ def test_ozon_enrichment_keeps_unknown_price_explicit():
         {"title": "Known", "url": "https://ozon.ru/product/a-123/", "content": "Цена 4 500 ₽", "raw_content": "Цена: 4 500 ₽"},
         {"title": "Unknown", "url": "https://ozon.ru/product/b-456/", "content": "Беспроводные наушники"},
         {"title": "Ambiguous", "url": "https://ozon.ru/product/c-789/", "content": "3 900 ₽, старая цена 5 900 ₽"},
+        {"title": "Snippet", "url": "https://ozon.ru/product/d-012/", "content": "Цена 3 900 ₽"},
     ])
-    assert [item["_ozon_price_rub"] for item in items] == [4500, None, None]
-    assert [item["_ozon_price_verified"] for item in items] == [True, False, False]
+    assert [item["_ozon_price_rub"] for item in items] == [4500, None, None, 3900]
+    assert [item["_ozon_price_verified"] for item in items] == [True, False, False, False]
     context = search.format_ozon_search_context(items, today="2026-11-12")
     assert "Цена: 4500 ₽" in context
     assert "не подтверждена; в поисковом фрагменте указано 3900 ₽" in context
-    assert context.count("не удалось однозначно подтвердить") == 1
+    assert context.count("не удалось однозначно подтвердить") == 2
 
 
 def test_ozon_budget_route_keeps_unknown_separately_and_excludes_over_budget(monkeypatch):
