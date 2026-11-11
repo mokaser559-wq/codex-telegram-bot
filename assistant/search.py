@@ -73,7 +73,7 @@ def requested_date_range(query, today=None):
     text = str(query or "").lower()
     today = today or date.today()
     month_pattern = "|".join(sorted(MONTH_PATTERNS, key=len, reverse=True))
-    match = re.search(r"\b(" + month_pattern + r"\w*)\s+(20\d{2})\b", text)
+    match = re.search(r"\b(" + month_pattern + r")\w*\s+(20\d{2})\b", text)
     if not match:
         return None
     month_token = match.group(1)
