@@ -663,3 +663,39 @@ def test_ozon_extract_fallback_does_not_override_explicit_out_of_stock(monkeypat
     )
     result = search.verify_ozon_product_results([item])
     assert result[0]["_ozon_live_status"] == "out_of_stock"
+
+
+
+def test_ozon_search_includes_configured_delivery_city(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "fake-key")
+    monkeypatch.setenv("OZON_DELIVERY_CITY", "Санкт-Петербург")
+    captured = []
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self): return b'{"results":[]}'
+
+    def fake_urlopen(request, timeout):
+        captured.append(json.loads(request.data)["query"])
+        return Response()
+
+    monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
+    search.search_tavily("Найди на Ozon наушники до 5000 рублей")
+    assert len(captured) == 2
+    assert all("доставка в Санкт-Петербург" in query for query in captured)
+    assert all("5000" not in query for query in captured)
+
+
+def test_ozon_delivery_city_can_be_configured(monkeypatch):
+    monkeypatch.setenv("OZON_DELIVERY_CITY", "Казань")
+    assert search.ozon_delivery_city() == "Казань"
+
+
+def test_ozon_context_labels_region_as_search_hint_not_verified_delivery(monkeypatch):
+    monkeypatch.setenv("OZON_DELIVERY_CITY", "Санкт-Петербург")
+    context = search.format_ozon_search_context([
+        {"title": "Headphones", "url": "https://www.ozon.ru/product/headphones-123456/"}
+    ])
+    assert "Регион поиска Ozon: Санкт-Петербург" in context
+    assert "региональная доставка отдельно не подтверждена" in context
