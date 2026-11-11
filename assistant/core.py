@@ -6,8 +6,7 @@ from assistant.search import (
     SearchError,
     filter_search_results,
     filter_ozon_product_results,
-    verify_ozon_product_results,
-    extract_ozon_budget,
+    enrich_ozon_product_results,
     format_ozon_search_context,
     format_ozon_debug_report,
     _is_ozon_product_query,
@@ -16,23 +15,6 @@ from assistant.search import (
     needs_search,
     search_tavily,
 )
-
-
-def _filter_ozon_budget_results(results, budget):
-    """Keep only cards with a live, explicit Ozon price and in-stock state."""
-    filtered = []
-    for item in results:
-        price = item.get("_ozon_price_rub")
-        if item.get("_ozon_live_verified") is not True:
-            continue
-        if item.get("_ozon_live_available") is not True:
-            continue
-        if not isinstance(price, (int, float)) or isinstance(price, bool) or price <= 0:
-            continue
-        if budget is not None and price > budget:
-            continue
-        filtered.append(item)
-    return filtered
 
 
 def process_message(text, history=None, codex_handler=None, status_handler=None, requeue_handler=None):
@@ -87,26 +69,16 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
             raw_results = search_tavily(text)
             is_ozon = _is_ozon_product_query(text)
             if is_ozon:
-                budget = extract_ozon_budget(text)
-                results = _filter_ozon_budget_results(
-                    verify_ozon_product_results(raw_results), budget
-                )
+                results = enrich_ozon_product_results(raw_results)
             else:
                 results = filter_search_results(raw_results)
         except SearchError:
             return "Сейчас не удалось выполнить поиск, поэтому я не могу надёжно проверить актуальные сведения. Попробуй повторить запрос позже."
         if not results:
             if is_ozon:
-                budget = extract_ozon_budget(text)
-                if budget is not None:
-                    return (
-                        f"Не удалось подтвердить на карточках Ozon товары до {budget} ₽ с актуальной ценой и наличием. "
-                        "Я не буду рекомендовать товары по устаревшим поисковым ценам или без подтверждённого наличия. "
-                        "Возможно, Ozon временно не отдаёт данные карточек."
-                    )
                 return (
-                    "Не удалось подтвердить актуальную цену и наличие товаров на карточках Ozon. "
-                    "Поисковая выдача сама по себе не считается подтверждением. Попробуй повторить позже."
+                    "Не удалось найти прямые карточки товаров Ozon по этому запросу. "
+                    "Попробуй уточнить название бренда или тип товара."
                 )
             return (
                 "Поиск не нашёл прямых ссылок на отдельные публикации. "
@@ -117,7 +89,7 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
             text, history, search_context=context,
             search_notice=(
                 "Поиск выполнен. Отвечай только по найденным результатам. "
-                + ("В контексте оставлены только товары, у которых цена и наличие проверены непосредственно по актуальной карточке Ozon и цена не выше бюджета. Перечисляй только эти товары, не добавляй товары по памяти или из прошлых сообщений. " if is_ozon and budget is not None else "")
+                + ("Это результаты поиска карточек товаров, а не подтверждённый каталог. Перечисляй найденные карточки даже если цена или наличие не извлечены. Цену из поискового фрагмента называй только примерной; если цены нет, так и напиши. Наличие отмечай как неподтверждённое, если нет явных данных. Не применяй ценовой потолок как фильтр и не добавляй товары по памяти или из прошлых сообщений. " if is_ozon else "")
                 + "Не выдумывай даты или заголовки, используй только факты, "
                 "которые подтверждаются фрагментами. Не создавай отдельный "
                 "список источников в конце ответа — ссылки будут добавлены автоматически."
