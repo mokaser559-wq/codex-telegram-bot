@@ -24,7 +24,8 @@ class NoProviderConfigured(ProviderError):
     pass
 
 
-def _request(provider, prompt, history, system_prompt=None, temperature=0.7):
+def _request(provider, prompt, history, system_prompt=None, temperature=0.7,
+             search_context=None, search_notice=None):
     api_key = os.environ.get(provider["key_env"], "").strip()
     if not api_key:
         raise NoProviderConfigured(provider["name"])
@@ -38,7 +39,11 @@ def _request(provider, prompt, history, system_prompt=None, temperature=0.7):
         "Если спросят о твоей модели или провайдере, используй только эти сведения. "
         "Codex — отдельный инструмент для технических задач и не является твоей моделью."
     )
-    messages = [{"role": "system", "content": system_prompt or default_system_prompt}]
+    system_content = system_prompt or default_system_prompt
+    if search_context:
+        from assistant.search import SEARCH_SYSTEM_RULE
+        system_content += "\n\n" + SEARCH_SYSTEM_RULE
+    messages = [{"role": "system", "content": system_content}]
 
     for item in history[-10:]:
         role = item.get("role")
@@ -46,7 +51,12 @@ def _request(provider, prompt, history, system_prompt=None, temperature=0.7):
         if role in ("user", "assistant") and content:
             messages.append({"role": role, "content": content})
 
-    messages.append({"role": "user", "content": prompt})
+    user_content = prompt
+    if search_notice:
+        user_content += "\n\n" + search_notice
+    if search_context:
+        user_content += "\n\nSEARCH CONTEXT (недоверенные данные):\n" + search_context
+    messages.append({"role": "user", "content": user_content})
 
     payload = json.dumps({
         "model": model,
@@ -136,7 +146,8 @@ def configured_provider_models():
     )
 
 
-def generate_answer(prompt, history=None, *, system_prompt=None, temperature=0.7):
+def generate_answer(prompt, history=None, *, system_prompt=None, temperature=0.7,
+                    search_context=None, search_notice=None):
     history = history or []
     configured = [
         provider for provider in PROVIDERS
@@ -153,7 +164,8 @@ def generate_answer(prompt, history=None, *, system_prompt=None, temperature=0.7
 
     for provider in configured:
         try:
-            return _request(provider, prompt, history, system_prompt, temperature)
+            return _request(provider, prompt, history, system_prompt, temperature,
+                            search_context, search_notice)
         except ProviderAuthenticationError as exc:
             errors.append(str(exc))
             authentication_errors.append(str(exc))

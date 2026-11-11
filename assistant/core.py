@@ -1,5 +1,6 @@
 from assistant.providers import generate_answer
 from assistant.router import route_message
+from assistant.search import SearchError, needs_search, search_tavily, format_search_context
 
 
 def process_message(text, history=None, codex_handler=None, status_handler=None, requeue_handler=None):
@@ -41,4 +42,16 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
             return "Напиши задачу после команды /codex."
         return codex_handler(prompt, history)
 
+    if needs_search(text):
+        try:
+            results = search_tavily(text)
+        except SearchError:
+            return "Сейчас не удалось выполнить поиск, поэтому я не могу надёжно проверить актуальные сведения. Попробуй повторить запрос позже."
+        if not results:
+            return "Поиск не нашёл подходящих источников, поэтому я не могу надёжно подтвердить актуальные сведения."
+        context = format_search_context(results)
+        return generate_answer(
+            text, history, search_context=context,
+            search_notice="Поиск выполнен; используй приложенные результаты.",
+        )
     return generate_answer(text, history)
