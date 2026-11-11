@@ -1,3 +1,5 @@
+import re
+
 from assistant.providers import generate_answer
 from assistant.router import route_message
 from assistant.search import (
