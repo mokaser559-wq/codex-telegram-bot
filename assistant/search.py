@@ -213,17 +213,18 @@ def _prices_outside_nonproduct_context(value):
 
 
 def _labeled_prices_in_text(value):
-    """Find explicitly labeled product prices, excluding old and delivery prices."""
-    text = _remove_struck_prices(" ".join(str(value or "").split()))
+    """Find explicitly labeled product prices without borrowing labels across lines."""
+    text = _remove_struck_prices(str(value or ""))
     prices = set()
-    for match in _PRICE_PATTERN.finditer(text):
-        prefix = text[max(0, match.start() - 60):match.start()]
-        if re.search(r"(?:цена|стоимость|price)[^.!?]{0,45}$", prefix, re.IGNORECASE):
-            if re.search(r"(?:доставк|старая|прежняя)[^.!?]{0,35}$", prefix, re.IGNORECASE):
-                continue
-            prices.add(int(re.sub(r"[ \u00a0\u202f]", "", match.group(1))))
+    for line in text.splitlines():
+        line = " ".join(line.split())
+        for match in _PRICE_PATTERN.finditer(line):
+            prefix = line[max(0, match.start() - 60):match.start()]
+            if re.search(r"(?:цена|стоимость|price)[^.!?]{0,45}$", prefix, re.IGNORECASE):
+                if re.search(r"(?:доставк|старая|прежняя)[^.!?]{0,35}$", prefix, re.IGNORECASE):
+                    continue
+                prices.add(int(re.sub(r"[ \u00a0\u202f]", "", match.group(1))))
     return prices
-
 
 def _extract_ozon_price(item):
     """Return a price only when extracted product-page content identifies it safely."""
