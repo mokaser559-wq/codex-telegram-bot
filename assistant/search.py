@@ -380,7 +380,7 @@ def search_tavily(query):
         raise SearchError("Поиск не настроен.")
     is_news = _is_news_query(query)
     is_ozon = _is_ozon_product_query(query)
-    search_query = ("site:ozon.ru/product " + str(query).strip()) if is_ozon else query
+    search_query = ("site:ozon.ru/product/ " + str(query).strip()) if is_ozon else query
     payload = {
         "api_key": api_key,
         "query": search_query,
