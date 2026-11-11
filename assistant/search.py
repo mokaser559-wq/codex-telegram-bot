@@ -89,7 +89,13 @@ def _valid_http_url(value):
         return ""
     try:
         parsed = urlsplit(url)
-        if parsed.scheme in ("http", "https") and parsed.netloc:
+        if (
+            parsed.scheme in ("http", "https")
+            and parsed.hostname
+            and parsed.username is None
+            and parsed.password is None
+        ):
+            parsed.port  # Validate malformed ports before accepting the URL.
             return url
     except ValueError:
         pass
