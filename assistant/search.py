@@ -295,10 +295,16 @@ def format_ozon_search_context(results, today=None):
         url = _valid_http_url(item.get("url"))
         price = item.get("_ozon_price_rub")
         source = item.get("_ozon_price_source") or ""
+        verified = item.get("_ozon_price_verified") is True
         price_text = (
-            str(price) + " ₽ (источник: " + source + "; цена может измениться)"
-            if isinstance(price, int) and price > 0
-            else "не удалось однозначно подтвердить"
+            str(price) + " ₽ (подтверждена по содержимому карточки; цена может измениться)"
+            if verified and isinstance(price, int) and price > 0
+            else (
+                "не подтверждена; в поисковом фрагменте указано "
+                + str(price) + " ₽ (не проверено по карточке)"
+                if isinstance(price, int) and price > 0
+                else "не удалось однозначно подтвердить"
+            )
         )
         lines.extend((
             "Товар: " + title,
