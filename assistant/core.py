@@ -16,6 +16,28 @@ from assistant.search import (
 )
 
 
+def _filter_ozon_budget_results(results, budget):
+    """Keep only explicitly priced, within-budget Ozon cards that are not marked unavailable."""
+    unavailable_pattern = re.compile(
+        r"нет\\s+в\\s+наличии|нет\\s+в\\s+продаже|товар\\s+закончился|"
+        r"закончился|распродан|узнать\\s+о\\s+поступлении|out\\s+of\\s+stock|sold\\s+out",
+        re.IGNORECASE,
+    )
+    filtered = []
+    for item in results:
+        price = item.get("_ozon_price_rub")
+        if not isinstance(price, int) or isinstance(price, bool) or price <= 0 or price > budget:
+            continue
+        searchable_text = " ".join(
+            str(item.get(field) or "")
+            for field in ("title", "content", "raw_content")
+        )
+        if unavailable_pattern.search(searchable_text):
+            continue
+        filtered.append(item)
+    return filtered
+
+
 def process_message(text, history=None, codex_handler=None, status_handler=None, requeue_handler=None):
     """Обрабатывает сообщение и возвращает текст ответа."""
     history = history or []
@@ -71,13 +93,7 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
                 results = enrich_ozon_product_results(raw_results)
                 budget = extract_ozon_budget(text)
                 if budget is not None:
-                    results = [
-                        item for item in results
-                        if (
-                            not isinstance(item.get("_ozon_price_rub"), int)
-                            or item["_ozon_price_rub"] <= budget
-                        )
-                    ]
+                    results = _filter_ozon_budget_results(results, budget)
             else:
                 results = filter_search_results(raw_results)
         except SearchError:
@@ -104,7 +120,7 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
             text, history, search_context=context,
             search_notice=(
                 "Поиск выполнен. Отвечай только по найденным результатам. "
-                + ("При бюджете учитывай, что цена из поискового фрагмента примерная: не называй её точной или гарантированной. Если примерная цена выше бюджета, не представляй товар как подходящий. " if is_ozon and budget is not None else "")
+                + ("В контексте уже оставлены только товары с найденной ценой не выше бюджета и без явных признаков отсутствия в продаже. Перечисляй только эти товары, не добавляй товары по памяти или из прошлых сообщений. Цена из поискового фрагмента примерная, не называй её точной или гарантированной. " if is_ozon and budget is not None else "")
                 + "Не выдумывай даты или заголовки, используй только факты, "
                 "которые подтверждаются фрагментами. Не создавай отдельный "
                 "список источников в конце ответа — ссылки будут добавлены автоматически."
