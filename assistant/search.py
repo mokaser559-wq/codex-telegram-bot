@@ -25,6 +25,7 @@ SEARCH_SYSTEM_RULE = (
     "Для рекомендаций товаров на Ozon используй только результаты отдельной проверки актуальной карточки: "
     "цена в рублях и явный статус наличия должны быть получены непосредственно со страницы Ozon. "
     "Поисковые фрагменты Tavily не подтверждают актуальную цену или наличие и не могут служить основанием рекомендации. "
+    "Регион поиска Ozon может влиять на релевантность выдачи, но сам по себе не подтверждает цену, наличие или доставку в этом регионе. " 
     "Если Ozon не отдаёт проверяемые данные, сообщи, что проверить товар не удалось; не угадывай. "
     "Не используй старую зачёркнутую цену, стоимость доставки, рассрочку или кешбэк как цену товара. "
     "Цена может измениться. Не подменяй карточку товара страницей категории, поиска, "
@@ -621,7 +622,7 @@ def extract_ozon_budget(query):
 def format_ozon_search_context(results, today=None):
     """Build a compact context with deterministic price verification labels."""
     today = today or date.today().isoformat()
-    lines = ["Дата поиска: " + today]
+    lines = ["Дата поиска: " + today, "Регион поиска Ozon: " + ozon_delivery_city() + " (региональная доставка отдельно не подтверждена)"]
     for item in results:
         title = _clean_text(item.get("title"))
         url = _valid_http_url(item.get("url"))
@@ -712,6 +713,11 @@ def format_ozon_debug_report(results):
     return "\n".join(lines)[:3600]
 
 
+def ozon_delivery_city():
+    """Return the configured Ozon delivery city used as a search hint."""
+    return os.environ.get("OZON_DELIVERY_CITY", "Санкт-Петербург").strip() or "Санкт-Петербург"
+
+
 def search_tavily(query):
     api_key = os.environ.get("TAVILY_API_KEY", "").strip()
     if not api_key:
@@ -720,6 +726,9 @@ def search_tavily(query):
     is_ozon = _is_ozon_product_query(query)
     date_range = requested_date_range(query)
     ozon_discovery_query = remove_ozon_budget_constraint(query) if is_ozon else query
+    if is_ozon:
+        region_hint = " доставка в " + ozon_delivery_city()
+        ozon_discovery_query = str(ozon_discovery_query).strip() + region_hint
     search_queries = (
         ["site:ozon.ru " + str(ozon_discovery_query).strip(),
          "site:ozon.ru/product/ " + str(ozon_discovery_query).strip()]
