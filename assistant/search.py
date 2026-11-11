@@ -186,7 +186,7 @@ def _prices_in_text(value):
 def _remove_struck_prices(text):
     """Remove prices explicitly marked as old/struck through in extracted markup."""
     text = re.sub(
-        r"(?is)<(?:del|s|strike)\\b[^>]*>.*?</(?:del|s|strike)\\s*>",
+        r"(?is)<(?:del|s|strike)\b[^>]*>.*?</(?:del|s|strike)\s*>",
         " ",
         text,
     )
@@ -202,8 +202,8 @@ def _prices_outside_nonproduct_context(value):
         suffix = text[match.end():match.end() + 35]
         if re.search(r"(?:доставк|курьер|пункт\s+выдачи)[^.!?]{0,45}$", prefix, re.IGNORECASE):
             continue
-        if re.search(r"(?:от\\s*)?$", prefix, re.IGNORECASE) and re.search(
-            r"^(?:\\s*/\\s*мес|\\s+в\\s+месяц|\\s+ежемесячно)", suffix, re.IGNORECASE
+        if re.search(r"(?:от\s*)?$", prefix, re.IGNORECASE) and re.search(
+            r"^(?:\s*/\s*мес|\s+в\s+месяц|\s+ежемесячно)", suffix, re.IGNORECASE
         ):
             continue
         if re.search(r"(?:рассрочк|плат[её]ж)[^.!?]{0,35}$", prefix, re.IGNORECASE):
