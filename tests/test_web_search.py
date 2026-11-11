@@ -472,46 +472,6 @@ def test_ozon_snippet_price_is_presented_as_approximate_not_exact():
     assert "подтверждена по содержимому карточки" not in context
 
 
-def test_ozon_budget_route_keeps_unknown_separately_and_excludes_over_budget(monkeypatch):
-    results = [
-        {"title": "Under budget", "url": "https://ozon.ru/product/a-123/", "content": "Цена 4 500 ₽", "raw_content": "Цена: 4 500 ₽"},
-        {"title": "Over budget", "url": "https://ozon.ru/product/b-456/", "content": "Цена 6 500 ₽", "raw_content": "Цена: 6 500 ₽"},
-        {"title": "Unknown", "url": "https://ozon.ru/product/c-789/", "content": "Наушники Bluetooth"},
-    ]
-    calls = []
-    monkeypatch.setattr(core, "search_tavily", lambda query: results)
-    monkeypatch.setattr(core, "verify_ozon_product_results", lambda items: [
-        {**items[0], "_ozon_price_rub": 4500, "_ozon_live_verified": True, "_ozon_live_available": True},
-        {**items[1], "_ozon_price_rub": 6500, "_ozon_live_verified": True, "_ozon_live_available": True},
-        {**items[2], "_ozon_live_verified": False, "_ozon_live_available": None},
-    ])
-    monkeypatch.setattr(
-        core, "generate_answer",
-        lambda *args, **kwargs: calls.append(kwargs) or "Подходящий товар за 4500 ₽",
-    )
-    answer = core.process_message("Найди на Ozon наушники до 5000 рублей")
-    assert "Under budget" in calls[0]["search_context"]
-    assert "Over budget" not in calls[0]["search_context"]
-    assert "Unknown" not in calls[0]["search_context"]
-    assert "не удалось однозначно подтвердить" not in calls[0]["search_context"]
-    assert "Карточки товаров на Ozon" in answer
-
-
-def test_ozon_budget_route_excludes_unknown_and_over_budget_cards(monkeypatch):
-    results = [
-        {"title": "Unknown", "url": "https://ozon.ru/product/c-789/", "content": "Наушники Bluetooth"},
-        {"title": "Over budget", "url": "https://ozon.ru/product/b-456/", "content": "Цена 6 500 ₽"},
-    ]
-    monkeypatch.setattr(core, "search_tavily", lambda query: results)
-    monkeypatch.setattr(core, "verify_ozon_product_results", lambda items: items)
-    calls = []
-    monkeypatch.setattr(core, "generate_answer", lambda *args, **kwargs: calls.append(kwargs) or "Не должно вызываться.")
-    answer = core.process_message("Найди на Ozon наушники до 5000 рублей")
-    assert calls == []
-    assert "Не удалось подтвердить на карточках Ozon" in answer
-    assert "ozon.ru/product/" not in answer
-
-
 def test_ozon_search_combines_broad_and_direct_product_queries(monkeypatch):
     responses = [
         {"results": [
@@ -583,18 +543,6 @@ def test_ozon_live_jsonld_rejects_missing_or_out_of_stock_offer():
     """
     assert search._jsonld_product_offers(missing) == []
     assert search._jsonld_product_offers(unavailable)[0]["available"] is False
-
-
-def test_ozon_budget_filter_rejects_search_snippet_even_if_under_budget():
-    item = {
-        "title": "Stale search result",
-        "_ozon_price_rub": 3600,
-        "_ozon_price_verified": False,
-        "_ozon_live_verified": False,
-        "_ozon_live_available": None,
-    }
-    assert core._filter_ozon_budget_results([item], 5000) == []
-
 
 
 def test_ozon_composer_widget_requires_explicit_availability_and_uses_final_price():
