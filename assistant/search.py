@@ -261,9 +261,9 @@ def _extract_ozon_price(item):
         suffix = snippet[match.end():match.end() + 35]
         if re.search(r"(?:старая|прежняя|до скидки|было|доставк|курьер|рассрочк|плат[её]ж|кешбэк|бонус)[^.!?]{0,45}$", prefix, re.IGNORECASE):
             continue
-        if re.search(r"^(?:\\s*/\\s*мес|\\s+в\\s+месяц|\\s+ежемесячно)", suffix, re.IGNORECASE):
+        if re.search(r"^(?:\s*/\s*мес|\s+в\s+месяц|\s+ежемесячно)", suffix, re.IGNORECASE):
             continue
-        price = int(re.sub(r"[ \\u00a0\\u202f]", "", match.group(1)))
+        price = int(re.sub(r"[ \u00a0\u202f]", "", match.group(1)))
         return price, "примерная цена из поискового фрагмента Tavily", False
     return None, "", False
 
