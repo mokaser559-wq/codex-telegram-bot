@@ -156,7 +156,7 @@ def test_explicit_month_range_is_sent_to_tavily_and_filters_out_of_range_results
     results = search.search_tavily("Новости ИИ за ноябрь 2026")
     assert captured["start_date"] == "2026-11-01"
     assert captured["end_date"] == "2026-11-11"
-    assert [item["title"] for item in results] == ["November", "Unknown date"]
+    assert [item["title"] for item in results] == ["November"]
 
 
 def test_requested_date_range_understands_russian_month_names():
