@@ -76,6 +76,99 @@ def test_invalid_http_hosts_and_ports_are_rejected():
     assert search._valid_http_url("https:///missing-host") == ""
 
 
+
+def test_news_filter_rejects_social_video_and_theme_pages():
+    results = [
+        {"title": "YouTube short", "url": "https://www.youtube.com/shorts/abc"},
+        {"title": "Facebook video", "url": "https://www.facebook.com/page/videos/123"},
+        {"title": "Kommersant topic", "url": "https://www.kommersant.ru/theme/2912"},
+        {"title": "Actual article", "url": "https://example.test/news/ai-model-launch"},
+    ]
+    assert [item["title"] for item in search.filter_search_results(results)] == ["Actual article"]
+
+
+def test_tavily_news_query_uses_news_topic_and_advanced_depth(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "fake-key")
+    captured = {}
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self): return b'{"results":[]}'
+
+    def fake_urlopen(request, timeout):
+        captured.update(json.loads(request.data))
+        return Response()
+
+    monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
+    search.search_tavily("Найди последние новости об искусственном интеллекте")
+    assert captured["topic"] == "news"
+    assert captured["search_depth"] == "advanced"
+    assert captured["include_published_date"] is True
+    assert captured["max_results"] == 10
+    assert "youtube.com" in captured["exclude_domains"]
+    assert "facebook.com" in captured["exclude_domains"]
+
+
+def test_general_tavily_query_keeps_general_search_settings(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "fake-key")
+    captured = {}
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self): return b'{"results":[]}'
+
+    def fake_urlopen(request, timeout):
+        captured.update(json.loads(request.data))
+        return Response()
+
+    monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
+    search.search_tavily("Объясни принцип работы нейронной сети")
+    assert "topic" not in captured
+    assert "search_depth" not in captured
+    assert "exclude_domains" not in captured
+
+
+
+def test_explicit_month_range_is_sent_to_tavily_and_filters_out_of_range_results(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "fake-key")
+    monkeypatch.setattr(
+        search, "requested_date_range",
+        lambda query: {"start_date": "2026-11-01", "end_date": "2026-11-12"},
+    )
+    captured = {}
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self):
+            return json.dumps({"results": [
+                {"title": "September", "url": "https://example.test/september", "published_date": "2026-09-30"},
+                {"title": "November", "url": "https://example.test/november", "published_date": "2026-11-10"},
+                {"title": "Unknown date", "url": "https://example.test/unknown"},
+            ]}).encode()
+
+    def fake_urlopen(request, timeout):
+        captured.update(json.loads(request.data))
+        return Response()
+
+    monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
+    results = search.search_tavily("Новости ИИ за ноябрь 2026")
+    assert captured["start_date"] == "2026-11-01"
+    assert captured["end_date"] == "2026-11-12"
+    assert [item["title"] for item in results] == ["November", "Unknown date"]
+
+
+def test_requested_date_range_understands_russian_month_names():
+    assert search.requested_date_range(
+        "Новости ИИ за ноябрь 2026 года", today=search.date(2026, 11, 11)
+    ) == {"start_date": "2026-11-01", "end_date": "2026-11-12"}
+    assert search.requested_date_range(
+        "Новости ИИ за сентябрь 2026", today=search.date(2026, 11, 11)
+    ) == {"start_date": "2026-09-01", "end_date": "2026-10-01"}
+
+
 def test_filter_handles_non_list_payload_safely():
     assert search.filter_search_results(None) == []
     assert search.filter_search_results({"url": "https://example.test/story"}) == []
