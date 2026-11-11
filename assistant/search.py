@@ -130,7 +130,8 @@ def _url_key(value):
         return ""
     parsed = urlsplit(url)
     host = (parsed.hostname or "").lower()
-    if parsed.port and parsed.port not in (80, 443):
+    default_port = 443 if parsed.scheme.lower() == "https" else 80
+    if parsed.port and parsed.port != default_port:
         host += ":" + str(parsed.port)
     path = parsed.path.rstrip("/") or "/"
     query = [
