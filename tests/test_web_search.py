@@ -468,8 +468,8 @@ def test_ozon_budget_route_keeps_unknown_separately_and_excludes_over_budget(mon
     calls = []
     monkeypatch.setattr(core, "search_tavily", lambda query: results)
     monkeypatch.setattr(core, "verify_ozon_product_results", lambda items: [
-        {**items[0], "_ozon_live_verified": True, "_ozon_live_available": True},
-        {**items[1], "_ozon_live_verified": True, "_ozon_live_available": True},
+        {**items[0], "_ozon_price_rub": 4500, "_ozon_live_verified": True, "_ozon_live_available": True},
+        {**items[1], "_ozon_price_rub": 6500, "_ozon_live_verified": True, "_ozon_live_available": True},
         {**items[2], "_ozon_live_verified": False, "_ozon_live_available": None},
     ])
     monkeypatch.setattr(
