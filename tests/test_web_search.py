@@ -1,3 +1,4 @@
+import io
 import json
 import urllib.error
 
@@ -522,3 +523,36 @@ def test_ozon_budget_route_returns_no_links_when_all_cards_are_unknown_or_unavai
     answer = core.process_message("Найди на Ozon наушники до 5000 рублей")
     assert "Не нашёл на Ozon товаров" in answer
     assert "ozon.ru/product/" not in answer
+
+
+
+def test_ozon_search_combines_broad_and_direct_product_queries(monkeypatch):
+    responses = [
+        {"results": [
+            {"title": "Ozon category", "url": "https://www.ozon.ru/category/headphones/"},
+            {"title": "Anker Soundcore P42i", "url": "https://www.ozon.ru/product/anker-soundcore-p42i-123/"},
+        ]},
+        {"results": [
+            {"title": "Anker Soundcore P20i", "url": "https://www.ozon.ru/product/anker-soundcore-p20i-456/"},
+            {"title": "Anker Soundcore P42i duplicate", "url": "https://www.ozon.ru/product/anker-soundcore-p42i-123/"},
+        ]},
+    ]
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append(json.loads(request.data.decode("utf-8")))
+        return io.BytesIO(json.dumps(responses.pop(0)).encode("utf-8"))
+
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key")
+    monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
+
+    results = search.search_tavily("Найди на Ozon беспроводные наушники Anker Soundcore до 5000 рублей")
+
+    assert len(requests) == 2
+    assert "site:ozon.ru " in requests[0]["query"]
+    assert "site:ozon.ru/product/" in requests[1]["query"]
+    assert [item["title"] for item in results] == [
+        "Ozon category",
+        "Anker Soundcore P42i",
+        "Anker Soundcore P20i",
+    ]
