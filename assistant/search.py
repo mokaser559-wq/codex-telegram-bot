@@ -4,7 +4,7 @@ import os
 import urllib.error
 import urllib.request
 from datetime import date
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 TAVILY_URL = "https://api.tavily.com/search"
@@ -56,7 +56,7 @@ def search_tavily(query):
     body = json.dumps({
         "api_key": api_key,
         "query": query,
-        "max_results": 5,
+        "max_results": 10,
         "include_answer": False,
     }).encode("utf-8")
     request = urllib.request.Request(
@@ -107,19 +107,49 @@ def _is_article_url(value):
         return False
     if not segments:
         return False
-    if len(segments) == 1 and segments[0] in _LISTING_PAGES:
+    if segments[-1] in _LISTING_PAGES:
         return False
-    if len(segments) <= 3 and any(part in _LISTING_SEGMENTS for part in segments[:-1]):
+    # Taxonomy URLs usually have exactly /tag/name or /category/name.
+    # Do not reject deeper URLs: publishers also place articles below
+    # /news/, /topics/ or /category/ paths.
+    if len(segments) == 2 and segments[0] in _LISTING_SEGMENTS:
         return False
     return True
 
 
-def filter_search_results(results):
-    """Keep only results with plausible article-level URLs."""
-    return [
-        item for item in results
-        if isinstance(item, dict) and _is_article_url(item.get("url"))
+def _url_key(value):
+    """Normalize harmless URL differences for duplicate detection."""
+    url = _valid_http_url(value)
+    if not url:
+        return ""
+    parsed = urlsplit(url)
+    host = (parsed.hostname or "").lower()
+    if parsed.port and parsed.port not in (80, 443):
+        host += ":" + str(parsed.port)
+    path = parsed.path.rstrip("/") or "/"
+    query = [
+        (key, val) for key, val in parse_qsl(parsed.query, keep_blank_values=True)
+        if not key.lower().startswith("utm_")
+        and key.lower() not in {"gclid", "fbclid", "yclid", "ref", "source"}
     ]
+    return urlunsplit((parsed.scheme.lower(), host, path, urlencode(query), ""))
+
+
+def filter_search_results(results):
+    """Keep plausible article URLs and remove duplicate URLs."""
+    if not isinstance(results, list):
+        return []
+    filtered = []
+    seen = set()
+    for item in results:
+        if not isinstance(item, dict) or not _is_article_url(item.get("url")):
+            continue
+        key = _url_key(item.get("url"))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        filtered.append(item)
+    return filtered
 
 
 def format_search_context(results, today=None):
@@ -147,9 +177,10 @@ def format_source_links(results, answer=""):
     answer = str(answer or "")
     for item in filter_search_results(results):
         url = _valid_http_url(item.get("url"))
-        if not url or url in seen_urls or url in answer:
+        key = _url_key(url)
+        if not url or key in seen_urls or url in answer:
             continue
-        seen_urls.add(url)
+        seen_urls.add(key)
         title = _clean_text(item.get("title")) or "Источник"
         published_date = _clean_text(item.get("published_date"))
         label = title + (" — " + published_date if published_date else "")
