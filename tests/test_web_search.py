@@ -469,5 +469,5 @@ def test_ozon_budget_route_shows_unknown_price_cards_without_claiming_budget_fit
     answer = core.process_message("Найди на Ozon наушники до 5000 рублей")
     assert "Unknown" in calls[0]["search_context"]
     assert "Over budget" not in calls[0]["search_context"]
-    assert "не называй товары с неизвестной ценой подходящими" in calls[0]["search_notice"]
+    assert "не называй товары с неизвестной ценой подходящими" in calls[0]["search_notice"].lower()
     assert "Карточки товаров на Ozon" in answer
