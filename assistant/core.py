@@ -1,6 +1,12 @@
 from assistant.providers import generate_answer
 from assistant.router import route_message
-from assistant.search import SearchError, needs_search, search_tavily, format_search_context
+from assistant.search import (
+    SearchError,
+    format_search_context,
+    format_source_links,
+    needs_search,
+    search_tavily,
+)
 
 
 def process_message(text, history=None, codex_handler=None, status_handler=None, requeue_handler=None):
@@ -50,8 +56,16 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
         if not results:
             return "Поиск не нашёл подходящих источников, поэтому я не могу надёжно подтвердить актуальные сведения."
         context = format_search_context(results)
-        return generate_answer(
+        answer = generate_answer(
             text, history, search_context=context,
-            search_notice="Поиск выполнен; используй приложенные результаты.",
+            search_notice=(
+                "Поиск выполнен. Отвечай только по найденным результатам. "
+                "Не выдумывай даты или заголовки; используй точные URL из контекста. "
+                "В конце перечисли источники, которые действительно использовал."
+            ),
         )
+        source_links = format_source_links(results)
+        if source_links:
+            answer = answer.rstrip() + "\n\n" + source_links
+        return answer
     return generate_answer(text, history)
