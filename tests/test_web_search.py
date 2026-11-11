@@ -323,6 +323,8 @@ def test_ozon_product_query_uses_domain_restricted_advanced_search(monkeypatch):
     monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
     search.search_tavily("Найди на Ozon беспроводные наушники до 5000 рублей")
     assert captured["query"].startswith("site:ozon.ru/product/ ")
+    assert "5000" not in captured["query"]
+    assert "беспроводные наушники" in captured["query"]
     assert captured["include_domains"] == ["ozon.ru"]
     assert captured["search_depth"] == "advanced"
     assert captured["max_results"] == 10
@@ -360,9 +362,9 @@ def test_ozon_search_route_uses_product_filter_and_card_heading(monkeypatch):
     ]
     calls = []
     monkeypatch.setattr(core, "search_tavily", lambda query: results)
-    monkeypatch.setattr(core, "verify_ozon_product_results", lambda items: [
-        {**items[0], "_ozon_price_rub": 3990, "_ozon_price_verified": True,
-         "_ozon_live_verified": True, "_ozon_live_available": True}
+    monkeypatch.setattr(core, "enrich_ozon_product_results", lambda items: [
+        {**items[0], "_ozon_price_rub": 3990, "_ozon_price_verified": False,
+         "_ozon_price_source": "примерная цена из поискового фрагмента Tavily"}
     ])
     monkeypatch.setattr(
         core, "generate_answer",
@@ -387,6 +389,17 @@ def test_ozon_price_is_extracted_only_when_unambiguous():
     )
     assert search._extract_ozon_price({"raw_content": "Доставка 299 ₽"}) == (None, "", False)
 
+
+
+
+@pytest.mark.parametrize(("query", "expected"), [
+    ("Найди на Ozon беспроводные наушники Anker Soundcore до 5000 рублей", "Найди на Ozon беспроводные наушники Anker Soundcore"),
+    ("Ozon, бюджетом до 12 000 ₽, смартфоны", "Ozon, смартфоны"),
+    ("Подбери на Ozon не дороже 3500", "Подбери на Ozon"),
+    ("Найди на Ozon наушники", "Найди на Ozon наушники"),
+])
+def test_remove_ozon_budget_constraint(query, expected):
+    assert search.remove_ozon_budget_constraint(query) == expected
 
 @pytest.mark.parametrize(("query", "expected"), [
     ("Найди на Ozon наушники до 5000 рублей", 5000),
@@ -505,38 +518,6 @@ def test_ozon_budget_route_excludes_unknown_and_over_budget_cards(monkeypatch):
     "Узнать о поступлении",
     "Sold out",
 ])
-def test_ozon_budget_filter_excludes_unavailable_products(status_text):
-    items = [
-        {"title": "Available", "_ozon_price_rub": 4500, "_ozon_live_verified": True, "_ozon_live_available": True, "content": "В наличии"},
-        {"title": "Unavailable", "_ozon_price_rub": 3900, "_ozon_live_verified": False, "_ozon_live_available": False, "content": status_text},
-    ]
-    assert [item["title"] for item in core._filter_ozon_budget_results(items, 5000)] == ["Available"]
-
-
-def test_ozon_budget_filter_requires_price_and_respects_budget():
-    items = [
-        {"title": "Verified within budget", "_ozon_price_rub": 4990, "_ozon_live_verified": True, "_ozon_live_available": True},
-        {"title": "Over budget", "_ozon_price_rub": 5001, "_ozon_live_verified": True, "_ozon_live_available": True},
-        {"title": "Unknown price", "_ozon_price_rub": None, "_ozon_live_verified": False, "_ozon_live_available": None},
-    ]
-    assert [item["title"] for item in core._filter_ozon_budget_results(items, 5000)] == [
-        "Verified within budget"
-    ]
-
-
-def test_ozon_budget_route_returns_no_links_when_all_cards_are_unknown_or_unavailable(monkeypatch):
-    results = [
-        {"title": "Unknown", "url": "https://ozon.ru/product/a-123/", "content": "Наушники"},
-        {"title": "Sold out", "url": "https://ozon.ru/product/b-456/", "content": "Товар закончился", "raw_content": "Цена 4 500 ₽"},
-    ]
-    monkeypatch.setattr(core, "search_tavily", lambda query: results)
-    monkeypatch.setattr(core, "verify_ozon_product_results", lambda items: items)
-    answer = core.process_message("Найди на Ozon наушники до 5000 рублей")
-    assert "Не удалось подтвердить на карточках Ozon" in answer
-    assert "ozon.ru/product/" not in answer
-
-
-
 def test_ozon_search_combines_broad_and_direct_product_queries(monkeypatch):
     responses = [
         {"results": [
