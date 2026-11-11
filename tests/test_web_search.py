@@ -70,6 +70,12 @@ def test_filter_removes_duplicate_urls_with_tracking_and_trailing_slash():
     assert [item["title"] for item in search.filter_search_results(results)] == ["First"]
 
 
+def test_invalid_http_hosts_and_ports_are_rejected():
+    assert search._valid_http_url("https://example.test:bad/article") == ""
+    assert search._valid_http_url("https://user@example.test/article") == ""
+    assert search._valid_http_url("https:///missing-host") == ""
+
+
 def test_filter_handles_non_list_payload_safely():
     assert search.filter_search_results(None) == []
     assert search.filter_search_results({"url": "https://example.test/story"}) == []
