@@ -297,6 +297,49 @@ def format_ozon_search_context(results, today=None):
     return "\n".join(lines)
 
 
+
+def format_ozon_debug_report(results):
+    """Show a bounded, credential-free view of Tavily's raw Ozon extraction."""
+    items = filter_ozon_product_results(results)
+    lines = [
+        "Диагностика Tavily / Ozon",
+        "Карточек в ответе Tavily: " + str(len(results) if isinstance(results, list) else 0),
+        "Прямых карточек после фильтра: " + str(len(items)),
+    ]
+    for index, item in enumerate(items[:6], 1):
+        enriched = enrich_ozon_product_results([item])
+        parsed = enriched[0] if enriched else {}
+        raw = str(item.get("raw_content") or "")
+        snippet = str(item.get("content") or "")
+        price_matches = list(_PRICE_PATTERN.finditer(raw))
+        lines.extend((
+            "",
+            str(index) + ". " + _clean_text(item.get("title"))[:110],
+            "URL: " + _valid_http_url(item.get("url")),
+            "Распознано: " + (
+                str(parsed.get("_ozon_price_rub")) + " ₽; подтверждено"
+                if parsed.get("_ozon_price_verified") is True
+                else "цена не подтверждена"
+            ),
+            "В raw_content: " + ("есть" if raw else "пусто")
+                + "; длина " + str(len(raw))
+                + "; ценовых совпадений " + str(len(price_matches))
+                + "; маркеры зачёркивания "
+                + ("есть" if re.search(r"<(?:del|s|strike)\\b|~~", raw, re.IGNORECASE) else "нет"),
+        ))
+        if price_matches:
+            excerpts = []
+            for match in price_matches[:4]:
+                excerpts.append(raw[max(0, match.start() - 100):min(len(raw), match.end() + 100)])
+            detail = " | ".join(" ".join(part.split()) for part in excerpts)
+        else:
+            detail = " ".join(raw[:420].split()) or "raw_content отсутствует"
+        lines.append("Фрагмент raw_content: " + detail[:520])
+        if snippet:
+            lines.append("Поисковый фрагмент: " + " ".join(snippet.split())[:180])
+    report = "\\n".join(lines)
+    return report[:3600]
+
 def search_tavily(query):
     api_key = os.environ.get("TAVILY_API_KEY", "").strip()
     if not api_key:
