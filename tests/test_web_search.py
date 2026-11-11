@@ -512,12 +512,6 @@ def test_ozon_budget_route_excludes_unknown_and_over_budget_cards(monkeypatch):
     assert "ozon.ru/product/" not in answer
 
 
-@pytest.mark.parametrize("status_text", [
-    "Товар закончился",
-    "Нет в наличии",
-    "Узнать о поступлении",
-    "Sold out",
-])
 def test_ozon_search_combines_broad_and_direct_product_queries(monkeypatch):
     responses = [
         {"results": [
