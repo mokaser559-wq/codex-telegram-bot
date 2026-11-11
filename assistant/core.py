@@ -21,8 +21,8 @@ from assistant.search import (
 def _filter_ozon_budget_results(results, budget):
     """Keep only explicitly priced, within-budget Ozon cards that are not marked unavailable."""
     unavailable_pattern = re.compile(
-        r"нет\\s+в\\s+наличии|нет\\s+в\\s+продаже|товар\\s+закончился|"
-        r"закончился|распродан|узнать\\s+о\\s+поступлении|out\\s+of\\s+stock|sold\\s+out",
+        r"нет\s+в\s+наличии|нет\s+в\s+продаже|товар\s+закончился|"
+        r"закончился|распродан|узнать\s+о\s+поступлении|out\s+of\s+stock|sold\s+out",
         re.IGNORECASE,
     )
     filtered = []
