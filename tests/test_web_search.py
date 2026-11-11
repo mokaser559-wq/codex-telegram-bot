@@ -76,6 +76,59 @@ def test_invalid_http_hosts_and_ports_are_rejected():
     assert search._valid_http_url("https:///missing-host") == ""
 
 
+
+def test_news_filter_rejects_social_video_and_theme_pages():
+    results = [
+        {"title": "YouTube short", "url": "https://www.youtube.com/shorts/abc"},
+        {"title": "Facebook video", "url": "https://www.facebook.com/page/videos/123"},
+        {"title": "Kommersant topic", "url": "https://www.kommersant.ru/theme/2912"},
+        {"title": "Actual article", "url": "https://example.test/news/ai-model-launch"},
+    ]
+    assert [item["title"] for item in search.filter_search_results(results)] == ["Actual article"]
+
+
+def test_tavily_news_query_uses_news_topic_and_advanced_depth(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "fake-key")
+    captured = {}
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self): return b'{"results":[]}'
+
+    def fake_urlopen(request, timeout):
+        captured.update(json.loads(request.data))
+        return Response()
+
+    monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
+    search.search_tavily("Найди последние новости об искусственном интеллекте")
+    assert captured["topic"] == "news"
+    assert captured["search_depth"] == "advanced"
+    assert captured["max_results"] == 10
+    assert "youtube.com" in captured["exclude_domains"]
+    assert "facebook.com" in captured["exclude_domains"]
+
+
+def test_general_tavily_query_keeps_general_search_settings(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "fake-key")
+    captured = {}
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self): return b'{"results":[]}'
+
+    def fake_urlopen(request, timeout):
+        captured.update(json.loads(request.data))
+        return Response()
+
+    monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
+    search.search_tavily("Объясни принцип работы нейронной сети")
+    assert "topic" not in captured
+    assert "search_depth" not in captured
+    assert "exclude_domains" not in captured
+
+
 def test_filter_handles_non_list_payload_safely():
     assert search.filter_search_results(None) == []
     assert search.filter_search_results({"url": "https://example.test/story"}) == []
