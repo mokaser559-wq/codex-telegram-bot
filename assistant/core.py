@@ -64,7 +64,8 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
                 if budget is not None:
                     results = [
                         item for item in results
-                        if isinstance(item.get("_ozon_price_rub"), int)
+                        if item.get("_ozon_price_verified") is True
+                        and isinstance(item.get("_ozon_price_rub"), int)
                         and item["_ozon_price_rub"] <= budget
                     ]
             else:
