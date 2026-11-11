@@ -184,27 +184,27 @@ def _prices_in_text(value):
 
 
 def _extract_ozon_price(item):
-    """Return a price only when one unambiguous ruble amount is present."""
-    snippet_prices = _prices_in_text(item.get("content"))
-    if len(snippet_prices) == 1:
-        return next(iter(snippet_prices)), "поисковый фрагмент"
-    if len(snippet_prices) > 1:
-        return None, ""
+    """Return a price and whether it came from extracted product-page content."""
     page_prices = _prices_in_text(item.get("raw_content"))
     if len(page_prices) == 1:
-        return next(iter(page_prices)), "извлечённое содержимое карточки"
-    return None, ""
+        return next(iter(page_prices)), "извлечённое содержимое карточки", True
+    if len(page_prices) > 1:
+        return None, "", False
+    snippet_prices = _prices_in_text(item.get("content"))
+    if len(snippet_prices) == 1:
+        return next(iter(snippet_prices)), "поисковый фрагмент (не подтверждён карточкой)", False
+    return None, "", False
 
 
 def enrich_ozon_product_results(results):
     """Attach conservative, source-grounded price metadata to Ozon cards."""
     enriched = []
     for item in filter_ozon_product_results(results):
-        price, source = _extract_ozon_price(item)
+        price, source, verified = _extract_ozon_price(item)
         enriched.append({
             **item,
             "_ozon_price_rub": price,
-            "_ozon_price_source": source,
+            "_ozon_price_source": source,\n            "_ozon_price_verified": verified,
         })
     return enriched
 
