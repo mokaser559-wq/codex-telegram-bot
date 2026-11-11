@@ -367,6 +367,7 @@ def test_ozon_search_route_uses_deterministic_price_answer(monkeypatch):
 
 def test_ozon_price_requires_explicit_ruble_amount_and_single_value():
     assert search.extract_ozon_price({"content": "Цена 4 990 ₽"}) == search.Decimal("4990")
+    assert search.extract_ozon_price({"content": "Цена 4 990,50 ₽"}) == search.Decimal("4990.50")
     assert search.extract_ozon_price({"content": "Стоимость 3 499 рублей"}) == search.Decimal("3499")
     assert search.extract_ozon_price({"content": "Цена от 4 990 ₽"}) == search.Decimal("4990")
     assert search.extract_ozon_price({"content": "Цена 4 990"}) is None
@@ -377,6 +378,7 @@ def test_ozon_price_requires_explicit_ruble_amount_and_single_value():
 def test_ozon_budget_parser_only_uses_explicit_budget_phrases():
     assert search.parse_ozon_budget("Найди на Ozon до 5 000 рублей") == search.Decimal("5000")
     assert search.parse_ozon_budget("не дороже 4 500 ₽") == search.Decimal("4500")
+    assert search.parse_ozon_budget("до 4 500,50 рублей") == search.Decimal("4500.50")
     assert search.parse_ozon_budget("Наушники за 5000 рублей") is None
 
 
@@ -388,7 +390,7 @@ def test_ozon_budget_answer_only_lists_confirmed_prices_as_matching():
         {"title": "Вариант D", "url": "https://ozon.ru/product/d-123/", "content": "Цена 5 500 ₽"},
     ]
     answer = search.format_ozon_product_answer(results, "Найди на Ozon до 5 000 рублей")
-    assert "1 карточек" in answer
+    assert "Подтверждённые товары в бюджете до 5 000 ₽ (1)" in answer
     assert "Вариант A — 4 990 ₽" in answer
     assert "Вариант B" in answer
     assert "Вариант C" in answer
