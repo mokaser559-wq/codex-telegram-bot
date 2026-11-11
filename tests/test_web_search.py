@@ -48,6 +48,39 @@ def test_listing_and_homepage_urls_are_filtered_before_model_context():
     assert "Homepage" not in context
 
 
+def test_nested_article_paths_are_not_rejected_as_listing_pages():
+    results = [
+        {"title": "News article", "url": "https://example.test/news/ai-breakthrough"},
+        {"title": "Topic article", "url": "https://example.test/topics/ai/new-model"},
+        {"title": "Category article", "url": "https://example.test/category/ai/report-2026"},
+        {"title": "Tag index", "url": "https://example.test/tag/ai"},
+        {"title": "Category index", "url": "https://example.test/category/ai"},
+        {"title": "News index", "url": "https://example.test/news"},
+    ]
+    assert [item["title"] for item in search.filter_search_results(results)] == [
+        "News article", "Topic article", "Category article"
+    ]
+
+
+def test_filter_removes_duplicate_urls_with_tracking_and_trailing_slash():
+    results = [
+        {"title": "First", "url": "https://EXAMPLE.test/story/?utm_source=feed"},
+        {"title": "Duplicate", "url": "https://example.test/story#section"},
+    ]
+    assert [item["title"] for item in search.filter_search_results(results)] == ["First"]
+
+
+def test_invalid_http_hosts_and_ports_are_rejected():
+    assert search._valid_http_url("https://example.test:bad/article") == ""
+    assert search._valid_http_url("https://user@example.test/article") == ""
+    assert search._valid_http_url("https:///missing-host") == ""
+
+
+def test_filter_handles_non_list_payload_safely():
+    assert search.filter_search_results(None) == []
+    assert search.filter_search_results({"url": "https://example.test/story"}) == []
+
+
 def test_source_links_use_exact_article_urls_skip_invalid_and_deduplicate():
     links = search.format_source_links([
         {"title": "Article A", "url": "https://example.test/a", "published_date": "2026-11-10"},
