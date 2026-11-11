@@ -619,3 +619,40 @@ def test_ozon_budget_filter_rejects_search_snippet_even_if_under_budget():
         "_ozon_live_available": None,
     }
     assert core._filter_ozon_budget_results([item], 5000) == []
+
+
+
+def test_ozon_composer_widget_requires_explicit_availability_and_uses_final_price():
+    payload = {
+        "widgetStates": {
+            "webSale-123": json.dumps({
+                "cellTrackingInfo": {
+                    "product": {
+                        "title": "Anker Soundcore P42i",
+                        "price": 4990,
+                        "finalPrice": 4502,
+                        "isAvailable": True,
+                    }
+                }
+            })
+        }
+    }
+    assert search._composer_product_offers(payload) == [{
+        "title": "Anker Soundcore P42i",
+        "price": 4502,
+        "available": True,
+        "availability": "instock",
+    }]
+
+
+def test_ozon_composer_widget_does_not_guess_missing_stock():
+    payload = {
+        "widgetStates": {
+            "webSale-123": json.dumps({
+                "cellTrackingInfo": {
+                    "product": {"title": "Headphones", "price": 4500}
+                }
+            })
+        }
+    }
+    assert search._composer_product_offers(payload) == []
