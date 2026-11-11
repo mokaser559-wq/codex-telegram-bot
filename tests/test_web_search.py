@@ -325,7 +325,7 @@ def test_ozon_product_query_uses_domain_restricted_advanced_search(monkeypatch):
     assert captured["query"].startswith("site:ozon.ru/product/ ")
     assert captured["include_domains"] == ["ozon.ru"]
     assert captured["search_depth"] == "advanced"
-    assert captured["max_results"] == 6
+    assert captured["max_results"] == 10
     assert captured["include_raw_content"] == "markdown"
     assert "topic" not in captured
 
