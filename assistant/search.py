@@ -169,8 +169,8 @@ def filter_ozon_product_results(results):
 
 
 _PRICE_PATTERN = re.compile(
-    r"(?<!\\d)(\\d{1,3}(?:[ \\u00a0\\u202f]\\d{3})+|\\d{2,6})"
-    r"\\s*(?:₽|руб(?:\\.|лей|ля)?)(?!\\w)",
+    r"(?<!\d)(\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d{2,6})"
+    r"\s*(?:₽|руб(?:\.|лей|ля)?)(?!\w)",
     re.IGNORECASE,
 )
 
@@ -178,7 +178,7 @@ _PRICE_PATTERN = re.compile(
 def _prices_in_text(value):
     text = str(value or "")
     return {
-        int(re.sub(r"[ \\u00a0\\u202f]", "", match))
+        int(re.sub(r"[ \u00a0\u202f]", "", match))
         for match in _PRICE_PATTERN.findall(text)
     }
 
@@ -213,13 +213,13 @@ def extract_ozon_budget(query):
     """Read an explicit maximum price from a shopping request."""
     text = str(query or "").lower().replace("ё", "е")
     match = re.search(
-        r"(?:до|не\\s+дороже|максимум|в\\s+пределах|бюджет(?:ом)?\\s*(?:до)?|under)"
-        r"\\s*(\\d{1,3}(?:[ \\u00a0\\u202f]\\d{3})+|\\d{3,6})",
+        r"(?:до|не\s+дороже|максимум|в\s+пределах|бюджет(?:ом)?\s*(?:до)?|under)"
+        r"\s*(\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d{3,6})",
         text,
     )
     if not match:
         return None
-    return int(re.sub(r"[ \\u00a0\\u202f]", "", match.group(1)))
+    return int(re.sub(r"[ \u00a0\u202f]", "", match.group(1)))
 
 
 def format_ozon_search_context(results, today=None):
@@ -242,7 +242,7 @@ def format_ozon_search_context(results, today=None):
             "URL: " + url,
             "Фрагмент: " + _clean_text(item.get("content")),
         ))
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
 def search_tavily(query):
