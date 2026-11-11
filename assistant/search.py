@@ -5,7 +5,7 @@ import os
 import re
 import urllib.error
 import urllib.request
-from datetime import date
+from datetime import date, timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
@@ -84,10 +84,12 @@ def requested_date_range(query, today=None):
     year = int(match.group(2))
     start = date(year, month, 1)
     last_day = calendar.monthrange(year, month)[1]
-    end = min(date(year, month, last_day), today) if (year, month) == (today.year, today.month) else date(year, month, last_day)
+    last_included = min(date(year, month, last_day), today) if (year, month) == (today.year, today.month) else date(year, month, last_day)
     if start > today:
         return None
-    return {"start_date": start.isoformat(), "end_date": end.isoformat()}
+    # Tavily defines end_date as results published before that date.
+    end_exclusive = last_included + timedelta(days=1)
+    return {"start_date": start.isoformat(), "end_date": end_exclusive.isoformat()}
 
 
 def _filter_results_by_date(results, date_range):
@@ -106,7 +108,7 @@ def _filter_results_by_date(results, date_range):
             # Keep undated articles: the assistant must report the date as unknown.
             filtered.append(item)
             continue
-        if start <= published <= end:
+        if start <= published < end:
             filtered.append(item)
     return filtered
 
@@ -136,6 +138,7 @@ def search_tavily(query):
         payload.update({
             "topic": "news",
             "search_depth": "advanced",
+            "include_published_date": True,
             "exclude_domains": list(NEWS_EXCLUDED_DOMAINS),
         })
     body = json.dumps(payload).encode("utf-8")
