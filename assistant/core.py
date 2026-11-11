@@ -7,6 +7,7 @@ from assistant.search import (
     enrich_ozon_product_results,
     extract_ozon_budget,
     format_ozon_search_context,
+    format_ozon_debug_report,
     _is_ozon_product_query,
     format_search_context,
     format_source_links,
