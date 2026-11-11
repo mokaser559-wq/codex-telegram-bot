@@ -31,24 +31,51 @@ def test_missing_publication_date_is_explicit():
     assert "Дата публикации: не указана" in formatted
 
 
-def test_source_links_use_exact_tavily_urls_skip_invalid_and_deduplicate():
+def test_listing_and_homepage_urls_are_filtered_before_model_context():
+    results = [
+        {"title": "Tag page", "url": "https://iz.ru/tag/iskusstvennyi-intellekt", "content": "listing"},
+        {"title": "Topic page", "url": "https://example.test/topics/ai", "content": "listing"},
+        {"title": "Homepage", "url": "https://example.test/", "content": "home"},
+        {"title": "News index", "url": "https://example.test/news", "content": "index"},
+        {"title": "Article", "url": "https://example.test/news/2026/11/article-title", "content": "article"},
+    ]
+    filtered = search.filter_search_results(results)
+    assert [item["title"] for item in filtered] == ["Article"]
+    context = search.format_search_context(results, today="2026-11-11")
+    assert "Article" in context
+    assert "Tag page" not in context
+    assert "Topic page" not in context
+    assert "Homepage" not in context
+
+
+def test_source_links_use_exact_article_urls_skip_invalid_and_deduplicate():
     links = search.format_source_links([
-        {
-            "title": "Article A",
-            "url": "https://example.test/a",
-            "published_date": "2026-11-10",
-        },
+        {"title": "Article A", "url": "https://example.test/a", "published_date": "2026-11-10"},
         {"title": "Bad URL", "url": "javascript:alert(1)"},
+        {"title": "Listing", "url": "https://example.test/tag/ai"},
         {"title": "Article B", "url": "https://example.test/b"},
         {"title": "Duplicate", "url": "https://example.test/a"},
         {"title": "No URL"},
     ])
     assert links == (
-        "Ссылки на найденные материалы:\n"
+        "Ссылки на найденные публикации:\n"
         "- Article A — 2026-11-10: https://example.test/a\n"
         "- Article B: https://example.test/b"
     )
     assert "javascript:" not in links
+    assert "/tag/" not in links
+
+
+def test_source_links_do_not_repeat_urls_already_in_answer():
+    answer = "Новость подтверждена: https://example.test/a"
+    links = search.format_source_links([
+        {"title": "Article A", "url": "https://example.test/a"},
+        {"title": "Article B", "url": "https://example.test/b"},
+    ], answer)
+    assert links == (
+        "Ссылки на найденные публикации:\n"
+        "- Article B: https://example.test/b"
+    )
 
 
 def test_source_links_sanitize_multiline_titles_and_reject_whitespace_urls():
@@ -57,14 +84,15 @@ def test_source_links_sanitize_multiline_titles_and_reject_whitespace_urls():
         {"title": "Bad URL", "url": "https://example.test/a b"},
     ])
     assert links == (
-        "Ссылки на найденные материалы:\n"
+        "Ссылки на найденные публикации:\n"
         "- Article - Fake item: https://example.test/a"
     )
 
 
 def test_source_links_empty_when_no_valid_urls():
     assert search.format_source_links([
-        {"title": "No URL", "url": "not-a-url"}
+        {"title": "No URL", "url": "not-a-url"},
+        {"title": "Tag", "url": "https://example.test/tag/ai"},
     ]) == ""
 
 
@@ -84,7 +112,12 @@ def test_search_route_preserves_history_and_appends_deterministic_sources(monkey
             "url": "https://openai.com/index/example/",
             "published_date": "2026-11-10",
             "content": "Current fact",
-        }
+        },
+        {
+            "title": "Tag page",
+            "url": "https://example.test/tag/ai",
+            "content": "Not an article",
+        },
     ]
     monkeypatch.setattr(core, "search_tavily", lambda query: results)
     monkeypatch.setattr(core, "generate_answer", lambda *args, **kwargs: calls.append((args, kwargs)) or "Ответ")
@@ -92,10 +125,11 @@ def test_search_route_preserves_history_and_appends_deterministic_sources(monkey
     args, kwargs = calls[0]
     assert args == ("Какие последние новости сегодня?", history)
     assert "Current fact" in kwargs["search_context"]
+    assert "Not an article" not in kwargs["search_context"]
     assert "2026-11-10" in kwargs["search_context"]
-    assert kwargs["search_notice"]
+    assert "отдельный список источников" in kwargs["search_notice"]
     assert answer.endswith(
-        "Ссылки на найденные материалы:\n"
+        "Ссылки на найденные публикации:\n"
         "- Official article — 2026-11-10: https://openai.com/index/example/"
     )
 
