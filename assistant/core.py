@@ -4,6 +4,9 @@ from assistant.search import (
     SearchError,
     filter_search_results,
     filter_ozon_product_results,
+    enrich_ozon_product_results,
+    extract_ozon_budget,
+    format_ozon_search_context,
     _is_ozon_product_query,
     format_search_context,
     format_source_links,
@@ -55,11 +58,29 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
         try:
             raw_results = search_tavily(text)
             is_ozon = _is_ozon_product_query(text)
-            results = filter_ozon_product_results(raw_results) if is_ozon else filter_search_results(raw_results)
+            if is_ozon:
+                results = enrich_ozon_product_results(raw_results)
+                budget = extract_ozon_budget(text)
+                if budget is not None:
+                    results = [
+                        item for item in results
+                        if item.get("_ozon_price_verified") is True
+                        and isinstance(item.get("_ozon_price_rub"), int)
+                        and item["_ozon_price_rub"] <= budget
+                    ]
+            else:
+                results = filter_search_results(raw_results)
         except SearchError:
             return "Сейчас не удалось выполнить поиск, поэтому я не могу надёжно проверить актуальные сведения. Попробуй повторить запрос позже."
         if not results:
             if is_ozon:
+                budget = extract_ozon_budget(text)
+                if budget is not None:
+                    return (
+                        f"Не нашёл на Ozon товаров с однозначно подтверждённой ценой до {budget} ₽. "
+                        "Не буду выдавать товары с неизвестной ценой или ценой выше бюджета за подходящие. "
+                        "Проверь актуальную стоимость непосредственно в карточках Ozon."
+                    )
                 return (
                     "Не удалось найти прямые карточки товаров на Ozon по этому запросу. "
                     "Попробуй уточнить название, бренд или характеристики товара."
@@ -68,12 +89,13 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
                 "Поиск не нашёл прямых ссылок на отдельные публикации. "
                 "Я не хочу выдавать страницы разделов или главные страницы за источники."
             )
-        context = format_search_context(results)
+        context = format_ozon_search_context(results) if is_ozon else format_search_context(results)
         answer = generate_answer(
             text, history, search_context=context,
             search_notice=(
                 "Поиск выполнен. Отвечай только по найденным результатам. "
-                "Не выдумывай даты или заголовки, используй только факты, "
+                + ("Для бюджета используй только переданные товары с подтверждённой ценой; не добавляй другие товары. " if is_ozon else "")
+                + "Не выдумывай даты или заголовки, используй только факты, "
                 "которые подтверждаются фрагментами. Не создавай отдельный "
                 "список источников в конце ответа — ссылки будут добавлены автоматически."
             ),
