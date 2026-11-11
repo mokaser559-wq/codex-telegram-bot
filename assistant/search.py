@@ -597,15 +597,14 @@ def remove_ozon_budget_constraint(query):
     """Remove a requested price ceiling from Ozon discovery, not from display."""
     text = str(query or "")
     pattern = (
-        r"(?i)\\b(?:до|не\\s+дороже|максимум|в\\s+пределах|"
-        r"бюджет(?:ом)?(?:\\s+до)?|under)\\s*"
-        r"(?:\\d{1,3}(?:[ \\u00a0\\u202f]\\d{3})+|\\d{3,6})"
-        r"\\s*(?:₽|руб(?:\\.|лей|ля)?)?"
+        r"(?i)\b(?:до|не\s+дороже|максимум|в\s+пределах|"
+        r"бюджет(?:ом)?(?:\s+до)?|under)\s*"
+        r"(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d{3,6})"
+        r"\s*(?:₽|руб(?:\.|лей|ля)?)?"
     )
     text = re.sub(pattern, " ", text)
-    text = re.sub(r"\\s*,\\s*(?:,\\s*)+", ", ", text)
+    text = re.sub(r"\s*,\s*(?:,\s*)+", ", ", text)
     return " ".join(text.split()).strip(" ,.;:-")
-
 def extract_ozon_budget(query):
     """Read an explicit maximum price from a shopping request."""
     text = str(query or "").lower().replace("ё", "е")
