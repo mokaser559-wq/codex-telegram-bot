@@ -451,10 +451,8 @@ def test_ozon_enrichment_keeps_unknown_price_explicit():
     assert [item["_ozon_price_rub"] for item in items] == [4500, None, 3900, 3900]
     assert [item["_ozon_price_verified"] for item in items] == [True, False, False, False]
     context = search.format_ozon_search_context(items, today="2026-11-12")
-    assert "Цена: 4500 ₽" in context
-    assert "примерно 3900 ₽ (поисковый фрагмент Tavily)" in context
-    assert context.count("не удалось однозначно подтвердить") == 1
-    assert "примерно 3900 ₽ (поисковый фрагмент Tavily)" in context
+    assert "Цена" not in context
+    assert "URL: https://www.ozon.ru/product/a-123/" in context
 
 
 def test_ozon_snippet_price_is_presented_as_approximate_not_exact():
@@ -466,8 +464,8 @@ def test_ozon_snippet_price_is_presented_as_approximate_not_exact():
     assert item["_ozon_price_rub"] == 4700
     assert item["_ozon_price_verified"] is False
     context = search.format_ozon_search_context([item])
-    assert "примерно 4700 ₽" in context
-    assert "подтверждена по содержимому карточки" not in context
+    assert "Цена" not in context
+    assert "URL: https://www.ozon.ru/product/anker-headphones-123/" in context
 
 
 def test_ozon_search_combines_broad_and_direct_product_queries(monkeypatch):
