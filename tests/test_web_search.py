@@ -347,12 +347,12 @@ def test_ozon_filter_keeps_unique_cards_and_normalizes_review_urls():
     assert filtered[1]["url"] == "https://www.ozon.ru/product/other-headphones-789/"
 
 
-def test_ozon_search_route_uses_product_filter_and_card_heading(monkeypatch):
+def test_ozon_search_route_uses_live_verification_and_reports_unknown_stock(monkeypatch):
     results = [
         {
             "title": "Наушники Example",
             "url": "https://www.ozon.ru/product/headphones-123456/",
-            "content": "Цена 3 990 ₽, Bluetooth 5.3",
+            "content": "В наличии",
         },
         {
             "title": "Category",
@@ -360,21 +360,25 @@ def test_ozon_search_route_uses_product_filter_and_card_heading(monkeypatch):
             "content": "not a product card",
         },
     ]
-    calls = []
+    checked = []
     monkeypatch.setattr(core, "search_tavily", lambda query: results)
-    monkeypatch.setattr(core, "filter_ozon_product_results", lambda items: search.filter_ozon_product_results(items)[:1])
+    monkeypatch.setattr(
+        core, "verify_ozon_product_results",
+        lambda items: checked.extend(items) or [{
+            **items[0], "_ozon_live_status": "unreachable",
+            "_ozon_live_verified": False,
+        }],
+    )
     monkeypatch.setattr(
         core, "generate_answer",
-        lambda *args, **kwargs: calls.append((args, kwargs)) or "Подходящий товар",
+        lambda *args, **kwargs: pytest.fail("Ozon results must not be invented by the language model"),
     )
     answer = core.process_message("Найди на Ozon беспроводные наушники")
-    assert "Цена" not in calls[0][1]["search_context"]
-    assert "URL: https://www.ozon.ru/product/headphones-123456/" in calls[0][1]["search_context"]
-    assert "not a product card" not in calls[0][1]["search_context"]
-    assert answer.endswith(
-        "Карточки товаров на Ozon:\n"
-        "- Наушники Example: https://www.ozon.ru/product/headphones-123456/"
-    )
+    assert len(checked) == 1
+    assert "Наличие не подтверждено" in answer
+    assert "headphones-123456" in answer
+    assert "Цена" not in answer
+    assert "доставка" in answer.lower()
 
 
 
@@ -610,19 +614,40 @@ def test_ozon_budget_filter_requires_live_price_and_stock():
     ]
 
 
-def test_ozon_route_returns_product_links_without_stock_snippets(monkeypatch):
+def test_ozon_route_separates_confirmed_and_unconfirmed_stock(monkeypatch):
     items = [
-        {"title": "In stock", "url": "https://www.ozon.ru/product/headphones-123/",
-         "content": "В наличии"},
-        {"title": "Unknown stock", "url": "https://www.ozon.ru/product/headphones-456/",
-         "content": "Наушники Bluetooth"},
+        {"title": "Confirmed", "url": "https://www.ozon.ru/product/headphones-123/"},
+        {"title": "Unknown", "url": "https://www.ozon.ru/product/headphones-456/"},
+        {"title": "Sold out", "url": "https://www.ozon.ru/product/headphones-789/"},
     ]
     monkeypatch.setattr(core, "search_tavily", lambda query: items)
-    monkeypatch.setattr(core, "generate_answer", lambda *args, **kwargs: "Вот варианты")
+    monkeypatch.setattr(core, "verify_ozon_product_results", lambda results: [
+        {**results[0], "_ozon_live_status": "in_stock", "_ozon_live_verified": True},
+        {**results[1], "_ozon_live_status": "unreachable", "_ozon_live_verified": False},
+        {**results[2], "_ozon_live_status": "out_of_stock", "_ozon_live_verified": False},
+    ])
     answer = core.process_message("Найди на Ozon наушники")
+    assert "Наличие подтверждено" in answer
     assert "headphones-123" in answer
+    assert "Наличие не подтверждено" in answer
     assert "headphones-456" in answer
+    assert "товара нет в наличии" in answer
+    assert "headphones-789" in answer
     assert "Цена" not in answer
+
+
+def test_ozon_verification_marks_cards_beyond_limit_as_not_checked(monkeypatch):
+    items = [
+        {"title": str(index), "url": f"https://www.ozon.ru/product/headphones-{index}/"}
+        for index in range(10)
+    ]
+    monkeypatch.setattr(search, "_verify_ozon_card", lambda item: {
+        **item, "_ozon_live_status": "unreachable", "_ozon_live_verified": False,
+    })
+    results = search.verify_ozon_product_results(items)
+    assert len(results) == 10
+    assert all(item["_ozon_live_status"] == "unreachable" for item in results[:8])
+    assert all(item["_ozon_live_status"] == "not_checked" for item in results[8:])
 
 
 def test_ozon_search_includes_configured_delivery_city(monkeypatch):

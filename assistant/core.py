@@ -6,7 +6,8 @@ from assistant.search import (
     SearchError,
     filter_search_results,
     filter_ozon_product_results,
-    format_ozon_search_context,
+    verify_ozon_product_results,
+    format_ozon_search_response,
     format_ozon_debug_report,
     _is_ozon_product_query,
     format_search_context,
@@ -85,35 +86,31 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
             raw_results = search_tavily(text)
             is_ozon = _is_ozon_product_query(text)
             if is_ozon:
-                # Ozon snippets often omit stock labels; keep relevant direct product cards.
-                results = filter_ozon_product_results(raw_results)
-            else:
-                results = filter_search_results(raw_results)
+                # Search snippets are discovery only; availability must come from the live card.
+                results = verify_ozon_product_results(
+                    filter_ozon_product_results(raw_results)
+                )
+                return format_ozon_search_response(results)
+            results = filter_search_results(raw_results)
         except SearchError:
             return "Сейчас не удалось выполнить поиск, поэтому я не могу надёжно проверить актуальные сведения. Попробуй повторить запрос позже."
         if not results:
-            if is_ozon:
-                return "Не нашёл подходящих прямых карточек Ozon по этому запросу. Попробуй изменить название или модель товара."
             return (
                 "Поиск не нашёл прямых ссылок на отдельные публикации. "
                 "Я не хочу выдавать страницы разделов или главные страницы за источники."
             )
-        context = format_ozon_search_context(results) if is_ozon else format_search_context(results)
+        context = format_search_context(results)
         answer = generate_answer(
             text, history, search_context=context,
             search_notice=(
                 "Поиск выполнен. Отвечай только по найденным результатам. "
-                + ("Показывай найденные прямые ссылки на карточки товаров Ozon. Не указывай цены и не утверждай, что товар точно есть в наличии: поисковая выдача не подтверждает текущий остаток. Предложи проверить наличие на самой карточке. Не добавляй товары по памяти. " if is_ozon else "")
-                + "Не выдумывай даты или заголовки, используй только факты, "
+                "Не выдумывай даты или заголовки, используй только факты, "
                 "которые подтверждаются фрагментами. Не создавай отдельный "
                 "список источников в конце ответа — ссылки будут добавлены автоматически."
             ),
         )
-        source_links = format_source_links(
-            results, answer,
-            heading="Карточки товаров на Ozon" if is_ozon else "Ссылки на найденные публикации",
-        )
+        source_links = format_source_links(results, answer)
         if source_links:
-            answer = answer.rstrip() + "\n\n" + source_links
+            answer = answer.rstrip() + "\\n\\n" + source_links
         return answer
     return generate_answer(text, history)
