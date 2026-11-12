@@ -659,7 +659,7 @@ def format_source_links(results, answer="", heading="Ссылки на найд�
     answer = str(answer or "")
     # If the model already supplied the requested three direct links, do not
     # append a second, unrelated list of every Tavily candidate.
-    if len(re.findall(r"https?://\\S+", answer)) >= 3:
+    if len(re.findall(r"https?://\S+", answer)) >= 3:
         return ""
     for item in filter_search_results(results):
         url = _valid_http_url(item.get("url"))
