@@ -21,23 +21,6 @@ from assistant.search import (
 )
 
 
-def _filter_ozon_budget_results(results, budget):
-    """Keep only products with a live price and explicit in-stock state."""
-    filtered = []
-    for item in results:
-        price = item.get("_ozon_price_rub")
-        if item.get("_ozon_live_verified") is not True:
-            continue
-        if item.get("_ozon_live_available") is not True:
-            continue
-        if not isinstance(price, (int, float)) or isinstance(price, bool) or price <= 0:
-            continue
-        if budget is not None and price > budget:
-            continue
-        filtered.append(item)
-    return filtered
-
-
 def process_message(text, history=None, codex_handler=None, status_handler=None, requeue_handler=None):
     """Обрабатывает сообщение и возвращает текст ответа."""
     history = history or []

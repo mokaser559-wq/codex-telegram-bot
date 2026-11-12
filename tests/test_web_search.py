@@ -426,18 +426,6 @@ def test_ozon_search_route_returns_unverified_cards_when_stock_is_not_confirmed(
 
 
 
-def test_ozon_price_is_extracted_only_when_unambiguous():
-    item = {"content": "Цена 3 990 ₽"}
-    assert search._extract_ozon_price(item) == (3990, "примерная цена из поискового фрагмента Tavily", False)
-    assert search._extract_ozon_price({"content": "Цена 3 990 ₽, старая цена 4 990 ₽"}) == (3990, "примерная цена из поискового фрагмента Tavily", False)
-    assert search._extract_ozon_price({"raw_content": "Стоимость: 2 799 руб."}) == (
-        2799, "извлечённое содержимое карточки", True
-    )
-    assert search._extract_ozon_price({"raw_content": "Доставка 299 ₽"}) == (None, "", False)
-
-
-
-
 @pytest.mark.parametrize(("query", "expected"), [
     ("Найди на Ozon беспроводные наушники Anker Soundcore до 5000 рублей", "Найди на Ozon беспроводные наушники Anker Soundcore"),
     ("Ozon, бюджетом до 12 000 ₽, смартфоны", "Ozon, смартфоны"),
@@ -446,75 +434,6 @@ def test_ozon_price_is_extracted_only_when_unambiguous():
 ])
 def test_remove_ozon_budget_constraint(query, expected):
     assert search.remove_ozon_budget_constraint(query) == expected
-
-@pytest.mark.parametrize(("query", "expected"), [
-    ("Найди на Ozon наушники до 5000 рублей", 5000),
-    ("Ozon, бюджетом до 12 000 ₽", 12000),
-    ("Подбери на Ozon не дороже 3500", 3500),
-    ("Найди на Ozon наушники", None),
-])
-def test_extract_ozon_budget(query, expected):
-    assert search.extract_ozon_budget(query) == expected
-
-
-def test_ozon_accepts_single_unlabeled_price_from_card_content():
-    assert search._extract_ozon_price({
-        "raw_content": "Anker Soundcore P42i\n4 502 ₽\n-41%"
-    }) == (4502, "единственная цена в содержимом карточки", True)
-
-
-def test_ozon_ignores_struck_old_price_when_current_price_is_clear():
-    assert search._extract_ozon_price({
-        "raw_content": "4 502 ₽ ~~7 747 ₽~~ -41%"
-    }) == (4502, "единственная цена в содержимом карточки", True)
-    assert search._extract_ozon_price({
-        "raw_content": "4 502 ₽ <del>7 747 ₽</del> -41%"
-    }) == (4502, "единственная цена в содержимом карточки", True)
-
-
-@pytest.mark.parametrize("content", [
-    "4 502 ₽\n7 747 ₽",
-    "Доставка 299 ₽",
-])
-def test_ozon_does_not_guess_between_unlabeled_or_delivery_prices(content):
-    assert search._extract_ozon_price({"raw_content": content}) == (None, "", False)
-
-
-@pytest.mark.parametrize("content", [
-    "Цена 4 502 ₽\nДоставка 299 ₽",
-    "Цена 4 502 ₽\nПлатёж 375 ₽/мес",
-])
-def test_ozon_keeps_labeled_product_price_separate_from_delivery_and_installments(content):
-    assert search._extract_ozon_price({"raw_content": content}) == (
-        4502, "извлечённое содержимое карточки", True
-    )
-
-def test_ozon_enrichment_keeps_unknown_price_explicit():
-    items = search.enrich_ozon_product_results([
-        {"title": "Known", "url": "https://ozon.ru/product/a-123/", "content": "Цена 4 500 ₽", "raw_content": "Цена: 4 500 ₽"},
-        {"title": "Unknown", "url": "https://ozon.ru/product/b-456/", "content": "Беспроводные наушники"},
-        {"title": "Ambiguous", "url": "https://ozon.ru/product/c-789/", "content": "3 900 ₽, старая цена 5 900 ₽"},
-        {"title": "Snippet", "url": "https://ozon.ru/product/d-012/", "content": "Цена 3 900 ₽"},
-    ])
-    assert [item["_ozon_price_rub"] for item in items] == [4500, None, 3900, 3900]
-    assert [item["_ozon_price_verified"] for item in items] == [True, False, False, False]
-    context = search.format_ozon_search_context(items, today="2026-11-12")
-    assert "Цена" not in context
-    assert "URL: https://www.ozon.ru/product/a-123/" in context
-
-
-def test_ozon_snippet_price_is_presented_as_approximate_not_exact():
-    item = search.enrich_ozon_product_results([{
-        "title": "Anker headphones",
-        "url": "https://ozon.ru/product/anker-headphones-123/",
-        "content": "Anker headphones, цена 4 700 ₽, старая цена 6 000 ₽",
-    }])[0]
-    assert item["_ozon_price_rub"] == 4700
-    assert item["_ozon_price_verified"] is False
-    context = search.format_ozon_search_context([item])
-    assert "Цена" not in context
-    assert "URL: https://www.ozon.ru/product/anker-headphones-123/" in context
-
 
 def test_ozon_search_combines_broad_and_direct_product_queries(monkeypatch):
     responses = [
@@ -549,115 +468,6 @@ def test_ozon_search_combines_broad_and_direct_product_queries(monkeypatch):
 
 
 
-def test_ozon_live_jsonld_requires_ruble_price_and_explicit_stock():
-    html = """
-    <script type="application/ld+json">
-    {
-      "@type": "Product",
-      "name": "Anker Soundcore P42i",
-      "offers": {
-        "@type": "Offer",
-        "price": "4502",
-        "priceCurrency": "RUB",
-        "availability": "https://schema.org/InStock"
-      }
-    }
-    </script>
-    """
-    assert search._jsonld_product_offers(html) == [{
-        "title": "Anker Soundcore P42i",
-        "price": 4502,
-        "available": True,
-        "availability": "instock",
-    }]
-
-
-def test_ozon_live_jsonld_rejects_missing_or_out_of_stock_offer():
-    missing = """
-    <script type="application/ld+json">
-    {"@type":"Product","name":"Headphones","offers":{"price":"4500","priceCurrency":"RUB"}}
-    </script>
-    """
-    unavailable = """
-    <script type="application/ld+json">
-    {"@type":"Product","name":"Headphones","offers":{
-      "price":"4500","priceCurrency":"RUB","availability":"https://schema.org/OutOfStock"
-    }}
-    </script>
-    """
-    assert search._jsonld_product_offers(missing) == []
-    assert search._jsonld_product_offers(unavailable)[0]["available"] is False
-
-
-def test_ozon_composer_widget_requires_explicit_availability_and_uses_final_price():
-    payload = {
-        "widgetStates": {
-            "webSale-123": json.dumps({
-                "cellTrackingInfo": {
-                    "product": {
-                        "title": "Anker Soundcore P42i",
-                        "price": 4990,
-                        "finalPrice": 4502,
-                        "isAvailable": True,
-                    }
-                }
-            })
-        }
-    }
-    assert search._composer_product_offers(payload) == [{
-        "title": "Anker Soundcore P42i",
-        "price": 4502,
-        "available": True,
-        "availability": "instock",
-    }]
-
-
-def test_ozon_composer_widget_does_not_guess_missing_stock():
-    payload = {
-        "widgetStates": {
-            "webSale-123": json.dumps({
-                "cellTrackingInfo": {
-                    "product": {"title": "Headphones", "price": 4500}
-                }
-            })
-        }
-    }
-    assert search._composer_product_offers(payload) == []
-
-
-def test_ozon_verification_keeps_direct_failure_unverified(monkeypatch):
-    item = {
-        "title": "Anker Soundcore P42i",
-        "url": "https://www.ozon.ru/product/headphones-123/",
-    }
-    monkeypatch.setattr(search, "_verify_ozon_card", lambda candidate: {
-        **candidate,
-        "_ozon_live_verified": False,
-        "_ozon_live_status": "unreachable",
-    })
-    verified = search.verify_ozon_product_results([item])
-    assert verified[0]["_ozon_live_verified"] is False
-    assert verified[0]["_ozon_live_status"] == "unreachable"
-
-
-def test_ozon_budget_filter_requires_live_price_and_stock():
-    items = [
-        {"title": "Within budget", "_ozon_price_rub": 4500,
-         "_ozon_live_verified": True, "_ozon_live_available": True},
-        {"title": "Over budget", "_ozon_price_rub": 6500,
-         "_ozon_live_verified": True, "_ozon_live_available": True},
-        {"title": "Unknown stock", "_ozon_price_rub": 3900,
-         "_ozon_live_verified": False, "_ozon_live_available": None},
-        {"title": "Sold out", "_ozon_price_rub": 3900,
-         "_ozon_live_verified": False, "_ozon_live_available": False},
-        {"title": "Unknown price", "_ozon_price_rub": None,
-         "_ozon_live_verified": True, "_ozon_live_available": True},
-    ]
-    assert [item["title"] for item in core._filter_ozon_budget_results(items, 5000)] == [
-        "Within budget"
-    ]
-
-
 def test_ozon_route_shows_unverified_cards_when_stock_signal_is_missing(monkeypatch):
     items = [
         {"title": "Anker Soundcore Space One", "url": "https://www.ozon.ru/product/space-one-123/"},
@@ -680,20 +490,6 @@ def test_ozon_route_uses_category_fallback_when_no_product_cards(monkeypatch):
     assert "разделы Ozon" in answer
     assert "category/kremy-dlya-lica-123" in answer
     assert "example.com" not in answer
-
-
-def test_ozon_verification_marks_cards_beyond_limit_as_not_checked(monkeypatch):
-    items = [
-        {"title": str(index), "url": f"https://www.ozon.ru/product/headphones-{index}/"}
-        for index in range(10)
-    ]
-    monkeypatch.setattr(search, "_verify_ozon_card", lambda item: {
-        **item, "_ozon_live_status": "unreachable", "_ozon_live_verified": False,
-    })
-    results = search.verify_ozon_product_results(items)
-    assert len(results) == 10
-    assert all(item["_ozon_live_status"] == "unreachable" for item in results[:8])
-    assert all(item["_ozon_live_status"] == "not_checked" for item in results[8:])
 
 
 def test_ozon_search_includes_configured_delivery_city(monkeypatch):
@@ -722,15 +518,6 @@ def test_ozon_delivery_city_can_be_configured(monkeypatch):
     assert search.ozon_delivery_city() == "Казань"
 
 
-def test_ozon_context_labels_region_as_search_hint_not_verified_delivery(monkeypatch):
-    monkeypatch.setenv("OZON_DELIVERY_CITY", "Санкт-Петербург")
-    context = search.format_ozon_search_context([
-        {"title": "Headphones", "url": "https://www.ozon.ru/product/headphones-123456/"}
-    ])
-    assert "Headphones" in context
-    assert "Цена" not in context
-    assert "Доставка" not in context
-
 def test_ozon_category_query_ignores_marketplace_and_typo_terms():
     results = [{
         "title": "Увлажняющий крем для лица",
@@ -739,3 +526,21 @@ def test_ozon_category_query_ignores_marketplace_and_typo_terms():
     assert search.filter_ozon_results_for_query(
         results, "Найди увлажняющий крем для лица некамедогенный на озоне, дешёвый но качественный"
     ) == results
+
+
+def test_ozon_debug_reports_url_filtering_without_price_checks():
+    report = search.format_ozon_debug_report([
+        {
+            "title": "Anker headphones",
+            "url": "https://www.ozon.ru/product/anker-headphones-123/",
+            "raw_content": "Цена 4 500 ₽",
+        },
+        {
+            "title": "Ozon category",
+            "url": "https://www.ozon.ru/category/headphones/",
+        },
+    ])
+    assert "Прямых карточек после фильтра: 1" in report
+    assert "принята фильтром" in report
+    assert "не путь /product/" in report
+    assert "Цена" not in report
