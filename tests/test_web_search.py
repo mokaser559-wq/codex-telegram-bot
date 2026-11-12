@@ -526,3 +526,21 @@ def test_ozon_category_query_ignores_marketplace_and_typo_terms():
     assert search.filter_ozon_results_for_query(
         results, "Найди увлажняющий крем для лица некамедогенный на озоне, дешёвый но качественный"
     ) == results
+
+
+def test_ozon_debug_reports_url_filtering_without_price_checks():
+    report = search.format_ozon_debug_report([
+        {
+            "title": "Anker headphones",
+            "url": "https://www.ozon.ru/product/anker-headphones-123/",
+            "raw_content": "Цена 4 500 ₽",
+        },
+        {
+            "title": "Ozon category",
+            "url": "https://www.ozon.ru/category/headphones/",
+        },
+    ])
+    assert "Прямых карточек после фильтра: 1" in report
+    assert "принята фильтром" in report
+    assert "не путь /product/" in report
+    assert "Цена" not in report
