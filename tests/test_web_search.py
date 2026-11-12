@@ -730,3 +730,12 @@ def test_ozon_context_labels_region_as_search_hint_not_verified_delivery(monkeyp
     assert "Headphones" in context
     assert "Цена" not in context
     assert "Доставка" not in context
+
+def test_ozon_category_query_ignores_marketplace_and_typo_terms():
+    results = [{
+        "title": "Увлажняющий крем для лица",
+        "url": "https://www.ozon.ru/product/face-cream-123/",
+    }]
+    assert search.filter_ozon_results_for_query(
+        results, "Найди увлажняющий крем для лица некамедогенный на озоне, дешёвый но качественный"
+    ) == results
