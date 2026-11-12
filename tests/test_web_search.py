@@ -435,20 +435,6 @@ def test_ozon_search_route_returns_unverified_cards_when_stock_is_not_confirmed(
 def test_remove_ozon_budget_constraint(query, expected):
     assert search.remove_ozon_budget_constraint(query) == expected
 
-@pytest.mark.parametrize(("query", "expected"), [
-    ("Найди на Ozon наушники до 5000 рублей", 5000),
-    ("Ozon, бюджетом до 12 000 ₽", 12000),
-    ("Подбери на Ozon не дороже 3500", 3500),
-    ("Найди на Ozon наушники", None),
-])
-@pytest.mark.parametrize("content", [
-    "4 502 ₽\n7 747 ₽",
-    "Доставка 299 ₽",
-])
-@pytest.mark.parametrize("content", [
-    "Цена 4 502 ₽\nДоставка 299 ₽",
-    "Цена 4 502 ₽\nПлатёж 375 ₽/мес",
-])
 def test_ozon_search_combines_broad_and_direct_product_queries(monkeypatch):
     responses = [
         {"results": [
@@ -531,14 +517,6 @@ def test_ozon_delivery_city_can_be_configured(monkeypatch):
     monkeypatch.setenv("OZON_DELIVERY_CITY", "Казань")
     assert search.ozon_delivery_city() == "Казань"
 
-
-ZON_DELIVERY_CITY", "Санкт-Петербург")
-    context = search.format_ozon_search_context([
-        {"title": "Headphones", "url": "https://www.ozon.ru/product/headphones-123456/"}
-    ])
-    assert "Headphones" in context
-    assert "Цена" not in context
-    assert "Доставка" not in context
 
 def test_ozon_category_query_ignores_marketplace_and_typo_terms():
     results = [{
