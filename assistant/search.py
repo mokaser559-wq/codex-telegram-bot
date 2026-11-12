@@ -186,7 +186,7 @@ def filter_ozon_results_for_query(results, query):
         "купить", "заказать", "товар", "товары", "вариант", "варианты",
         "лучший", "лучшие", "популярный", "популярные", "в", "на", "для",
         "с", "и", "или", "по", "мне", "беспроводные", "беспроводной",
-        "наушники", "наушников", "гарнитура", "гарнитуры",
+        "наушники", "наушников", "гарнитура", "гарнитуры", "крем", "крема", "кремы", "лица", "лицо", "увлажняющий", "увлажняющая", "увлажняющее", "некомедогенный", "некомедогенная", "некомедогенное", "некомедогенные", "дешевый", "дешёвый", "недорогой", "недорогие", "качественный", "качественная", "хороший", "хорошая",
     }
     terms = [
         token.casefold()
@@ -201,6 +201,54 @@ def filter_ozon_results_for_query(results, query):
     ]
 
 
+
+def filter_ozon_category_results(results):
+    """Keep unique Ozon category/search pages as a clearly labeled fallback."""
+    if not isinstance(results, list):
+        return []
+    kept, seen = [], set()
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        url = _valid_http_url(item.get("url"))
+        if not url:
+            continue
+        parsed = urlsplit(url)
+        host = (parsed.hostname or "").lower()
+        if host != "ozon.ru" and not host.endswith(".ozon.ru"):
+            continue
+        segments = [part.lower() for part in parsed.path.split("/") if part]
+        if not segments or segments[0] not in {"category", "categories", "search", "searchresult"}:
+            continue
+        key = _url_key(url)
+        if key and key not in seen:
+            seen.add(key)
+            kept.append({**item, "url": url})
+    return kept
+
+def format_ozon_unverified_shortlist(results):
+    """Show direct Ozon cards when stock cannot be verified, with a clear warning."""
+    if not results:
+        return ""
+    lines = ["Нашёл подходящие карточки Ozon, но наличие не подтверждено:"]
+    for item in results[:5]:
+        title = _clean_text(item.get("title")) or "Товар Ozon"
+        url = _canonical_ozon_product_url(item.get("url"))
+        if url:
+            lines.append("- " + title + ": " + url)
+    lines.extend(["", "Проверь кнопку покупки и наличие отзывов на странице товара. Это не подтверждение, что товар можно заказать."])
+    return "\n".join(lines)
+
+def format_ozon_category_fallback(results):
+    """Show Ozon category/search pages only as a fallback, not as product cards."""
+    if not results:
+        return "Не удалось найти подходящие карточки или разделы Ozon. Попробуй уточнить запрос."
+    lines = ["Не нашёл подходящих карточек товаров. Вот разделы Ozon, с которых можно начать:"]
+    for item in results[:3]:
+        title = _clean_text(item.get("title")) or "Раздел Ozon"
+        lines.append("- " + title + ": " + item["url"])
+    lines.append("Это ссылки на категории или поиск, а не проверенные товары.")
+    return "\n".join(lines)
 def _ozon_count_value(raw_value, multiplier=""):
     """Convert a Russian marketplace count such as '1 2 тыс.' into an integer."""
     number = re.sub(r"[\s\u00a0\u202f]", "", str(raw_value or "")).replace(",", ".")
