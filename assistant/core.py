@@ -7,6 +7,9 @@ from assistant.search import (
     filter_search_results,
     filter_ozon_in_stock_results,
     filter_ozon_results_for_query,
+    filter_ozon_category_results,
+    format_ozon_category_fallback,
+    format_ozon_unverified_shortlist,
     rank_ozon_product_results,
     format_ozon_product_shortlist,
     format_ozon_debug_report,
@@ -88,11 +91,16 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
             is_ozon = _is_ozon_product_query(text)
             if is_ozon:
                 # Never present an Ozon card as buyable without an explicit positive stock signal.
-                in_stock = filter_ozon_results_for_query(
-                    filter_ozon_in_stock_results(raw_results), text
-                )
-                results = rank_ozon_product_results(in_stock, limit=5)
-                return format_ozon_product_shortlist(results)
+                matched = filter_ozon_results_for_query(raw_results, text)
+                in_stock = filter_ozon_in_stock_results(matched)
+                if in_stock:
+                    results = rank_ozon_product_results(in_stock, limit=5)
+                    return format_ozon_product_shortlist(results)
+                unverified = rank_ozon_product_results(matched, limit=5)
+                if unverified:
+                    return format_ozon_unverified_shortlist(unverified)
+                categories = filter_ozon_category_results(raw_results)
+                return format_ozon_category_fallback(categories)
             results = filter_search_results(raw_results)
         except SearchError:
             return "Сейчас не удалось выполнить поиск, поэтому я не могу надёжно проверить актуальные сведения. Попробуй повторить запрос позже."
