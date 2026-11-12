@@ -147,7 +147,6 @@ def test_explicit_month_range_is_sent_to_tavily_and_filters_out_of_range_results
             return json.dumps({"results": [
                 {"title": "September", "url": "https://example.test/september", "published_date": "2026-09-30"},
                 {"title": "November", "url": "https://example.test/november", "published_date": "2026-11-10"},
-                {"title": "Unknown date", "url": "https://example.test/unknown"},
             ]}).encode()
 
     def fake_urlopen(request, timeout):
@@ -158,7 +157,7 @@ def test_explicit_month_range_is_sent_to_tavily_and_filters_out_of_range_results
     results = search.search_tavily("Новости ИИ за ноябрь 2026")
     assert captured["start_date"] == "2026-11-01"
     assert captured["end_date"] == "2026-11-12"
-    assert [item["title"] for item in results] == ["November", "Unknown date"]
+    assert [item["title"] for item in results] == ["November"]
 
 
 def test_requested_date_range_understands_russian_month_names():
@@ -545,3 +544,28 @@ def test_ozon_debug_reports_url_filtering_without_price_checks():
     assert "принята фильтром" in report
     assert "не путь /product/" in report
     assert "Цена" not in report
+
+
+
+def test_rfc_publication_dates_are_parsed_and_out_of_range_dates_are_rejected():
+    assert search._parse_published_date("Mon, 09 Nov 2026 21:00:00 GMT") == search.date(2026, 11, 9)
+    filtered = search._filter_results_by_date([
+        {"title": "Inside", "url": "https://example.test/inside", "published_date": "Mon, 09 Nov 2026 21:00:00 GMT"},
+        {"title": "Outside", "url": "https://example.test/outside", "published_date": "Sun, 08 Nov 2026 21:00:00 GMT"},
+        {"title": "Unknown", "url": "https://example.test/unknown"},
+    ], {"start_date": "2026-11-09", "end_date": "2026-11-10"})
+    assert [item["title"] for item in filtered] == ["Inside"]
+
+
+def test_source_links_are_not_appended_when_answer_already_has_three_direct_links():
+    answer = (
+        "1. https://example.test/a "
+        "2. https://example.test/b "
+        "3. https://example.test/c"
+    )
+    assert search.format_source_links([
+        {"title": "A", "url": "https://example.test/a"},
+        {"title": "B", "url": "https://example.test/b"},
+        {"title": "C", "url": "https://example.test/c"},
+        {"title": "Extra", "url": "https://example.test/extra"},
+    ], answer) == ""
