@@ -347,38 +347,64 @@ def test_ozon_filter_keeps_unique_cards_and_normalizes_review_urls():
     assert filtered[1]["url"] == "https://www.ozon.ru/product/other-headphones-789/"
 
 
-def test_ozon_search_route_uses_live_verification_and_reports_unknown_stock(monkeypatch):
-    results = [
-        {
-            "title": "Наушники Example",
-            "url": "https://www.ozon.ru/product/headphones-123456/",
-            "content": "В наличии",
-        },
-        {
-            "title": "Category",
-            "url": "https://www.ozon.ru/category/headphones/",
-            "content": "not a product card",
-        },
+def test_ozon_popularity_extraction_and_ranking_uses_purchases_then_reviews():
+    items = [
+        {"title": "Many reviews", "url": "https://ozon.ru/product/reviews-111/",
+         "content": "4,8 · 2 400 отзывов"},
+        {"title": "Most purchases", "url": "https://ozon.ru/product/purchases-222/",
+         "content": "Купили более 10 тыс. раз · 4,7 · 800 отзывов"},
+        {"title": "Fewer purchases", "url": "https://ozon.ru/product/fewer-333/",
+         "content": "Купили 1 200 раз · 4,9 · 300 отзывов"},
+        {"title": "Unknown", "url": "https://ozon.ru/product/unknown-444/"},
+        {"title": "Duplicate", "url": "https://ozon.ru/product/purchases-222/?utm_source=x",
+         "content": "Купили 99 тыс. раз"},
     ]
-    checked = []
+    ranked = search.rank_ozon_product_results(items, limit=4)
+    assert [item["title"] for item in ranked] == [
+        "Most purchases", "Fewer purchases", "Many reviews", "Unknown"
+    ]
+    assert ranked[0]["_ozon_purchase_count"] == 10000
+    assert ranked[0]["_ozon_review_count"] == 800
+    assert ranked[0]["_ozon_rating"] == 4.7
+    assert ranked[2]["_ozon_review_count"] == 2400
+
+
+def test_ozon_shortlist_reports_metrics_only_when_found():
+    answer = search.format_ozon_product_shortlist(search.rank_ozon_product_results([{
+        "title": "Anker Soundcore Space One",
+        "url": "https://ozon.ru/product/space-one-123/",
+        "content": "Купили 3 500 раз · 4,8 · 1 200 отзывов",
+    }]))
+    assert "Space One" in answer
+    assert "Покупки: 3500" in answer
+    assert "Отзывы: 1200" in answer
+    assert "Рейтинг: 4,8/5" in answer
+    assert "Наличие" in answer
+    assert "https://www.ozon.ru/product/space-one-123/" in answer
+
+
+def test_ozon_shortlist_does_not_claim_popularity_when_metrics_are_missing():
+    answer = search.format_ozon_product_shortlist(search.rank_ozon_product_results([{
+        "title": "Anker Soundcore Space One",
+        "url": "https://ozon.ru/product/space-one-123/",
+    }]))
+    assert "популярность этих товаров подтвердить не удалось" in answer
+
+
+def test_ozon_search_route_returns_relevant_shortlist_without_stock_checks(monkeypatch):
+    results = [
+        {"title": "Anker Soundcore Space One", "url": "https://www.ozon.ru/product/space-one-123/"},
+        {"title": "Anker Soundcore Q45", "url": "https://www.ozon.ru/product/q45-456/"},
+        {"title": "Unrelated phone case", "url": "https://www.ozon.ru/product/case-789/"},
+    ]
     monkeypatch.setattr(core, "search_tavily", lambda query: results)
-    monkeypatch.setattr(
-        core, "verify_ozon_product_results",
-        lambda items: checked.extend(items) or [{
-            **items[0], "_ozon_live_status": "unreachable",
-            "_ozon_live_verified": False,
-        }],
-    )
-    monkeypatch.setattr(
-        core, "generate_answer",
-        lambda *args, **kwargs: pytest.fail("Ozon results must not be invented by the language model"),
-    )
-    answer = core.process_message("Найди на Ozon беспроводные наушники")
-    assert len(checked) == 1
-    assert "Наличие не подтверждено" in answer
-    assert "headphones-123456" in answer
+    answer = core.process_message("Найди на Ozon наушники Anker Soundcore")
+    assert "Space One" in answer
+    assert "Q45" in answer
+    assert "наличие" in answer.lower()
+    assert "популярность" in answer.lower()
     assert "Цена" not in answer
-    assert "доставка" in answer.lower()
+
 
 
 
@@ -614,26 +640,15 @@ def test_ozon_budget_filter_requires_live_price_and_stock():
     ]
 
 
-def test_ozon_route_separates_confirmed_and_unconfirmed_stock(monkeypatch):
+def test_ozon_route_never_waits_for_live_stock_verification(monkeypatch):
     items = [
-        {"title": "Confirmed", "url": "https://www.ozon.ru/product/headphones-123/"},
-        {"title": "Unknown", "url": "https://www.ozon.ru/product/headphones-456/"},
-        {"title": "Sold out", "url": "https://www.ozon.ru/product/headphones-789/"},
+        {"title": "Anker Soundcore Space One", "url": "https://www.ozon.ru/product/space-one-123/"},
+        {"title": "Anker Soundcore Q45", "url": "https://www.ozon.ru/product/q45-456/"},
     ]
     monkeypatch.setattr(core, "search_tavily", lambda query: items)
-    monkeypatch.setattr(core, "verify_ozon_product_results", lambda results: [
-        {**results[0], "_ozon_live_status": "in_stock", "_ozon_live_verified": True},
-        {**results[1], "_ozon_live_status": "unreachable", "_ozon_live_verified": False},
-        {**results[2], "_ozon_live_status": "out_of_stock", "_ozon_live_verified": False},
-    ])
-    answer = core.process_message("Найди на Ozon наушники")
-    assert "Наличие подтверждено" in answer
-    assert "headphones-123" in answer
-    assert "Наличие не подтверждено" in answer
-    assert "headphones-456" in answer
-    assert "товара нет в наличии" in answer
-    assert "headphones-789" in answer
-    assert "Цена" not in answer
+    answer = core.process_message("Найди на Ozon наушники Anker Soundcore")
+    assert "Space One" in answer and "Q45" in answer
+    assert "наличие" in answer.lower()
 
 
 def test_ozon_verification_marks_cards_beyond_limit_as_not_checked(monkeypatch):
