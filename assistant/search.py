@@ -207,7 +207,7 @@ def format_ozon_product_shortlist(results):
         "Это наиболее подходящие найденные варианты, а не рейтинг продаж. "
         "Наличие и актуальные условия заказа проверь на странице товара.",
     ))
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
 def filter_ozon_in_stock_results(results):
