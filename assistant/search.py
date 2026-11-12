@@ -549,7 +549,7 @@ def format_ozon_search_response(results):
         "",
         "Цены и доставка не проверялись. Даже подтверждённое наличие может измениться до оформления заказа.",
     ))
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
 def enrich_ozon_product_results(results):
