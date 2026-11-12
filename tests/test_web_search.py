@@ -255,6 +255,7 @@ def test_search_route_preserves_history_and_appends_deterministic_sources(monkey
     assert "Not an article" not in kwargs["search_context"]
     assert "2026-11-10" in kwargs["search_context"]
     assert "отдельный список источников" in kwargs["search_notice"]
+    assert "\n\nСсылки на найденные публикации:" in answer
     assert answer.endswith(
         "Ссылки на найденные публикации:\n"
         "- Official article — 2026-11-10: https://openai.com/index/example/"
