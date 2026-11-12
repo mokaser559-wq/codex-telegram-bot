@@ -5,7 +5,7 @@ from assistant.router import route_message
 from assistant.search import (
     SearchError,
     filter_search_results,
-    filter_ozon_in_stock_results,
+    filter_ozon_product_results,
     format_ozon_search_context,
     format_ozon_debug_report,
     _is_ozon_product_query,
@@ -14,7 +14,6 @@ from assistant.search import (
     needs_search,
     search_tavily,
 )
-
 
 
 def _filter_ozon_budget_results(results, budget):
@@ -86,14 +85,15 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
             raw_results = search_tavily(text)
             is_ozon = _is_ozon_product_query(text)
             if is_ozon:
-                results = filter_ozon_in_stock_results(raw_results)
+                # Ozon snippets often omit stock labels; keep relevant direct product cards.
+                results = filter_ozon_product_results(raw_results)
             else:
                 results = filter_search_results(raw_results)
         except SearchError:
             return "Сейчас не удалось выполнить поиск, поэтому я не могу надёжно проверить актуальные сведения. Попробуй повторить запрос позже."
         if not results:
             if is_ozon:
-                return "Не нашёл карточек Ozon, где поисковая выдача явно указывает наличие товара. Попробуй изменить запрос."
+                return "Не нашёл подходящих прямых карточек Ozon по этому запросу. Попробуй изменить название или модель товара."
             return (
                 "Поиск не нашёл прямых ссылок на отдельные публикации. "
                 "Я не хочу выдавать страницы разделов или главные страницы за источники."
@@ -103,7 +103,7 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
             text, history, search_context=context,
             search_notice=(
                 "Поиск выполнен. Отвечай только по найденным результатам. "
-                + ("Показывай только найденные ссылки на карточки, для которых поисковый результат явно указывает наличие. Не указывай цены, не оценивай доставку и не добавляй товары по памяти. Если наличие в источнике не указано, не утверждай, что товар в наличии. " if is_ozon else "")
+                + ("Показывай найденные прямые ссылки на карточки товаров Ozon. Не указывай цены и не утверждай, что товар точно есть в наличии: поисковая выдача не подтверждает текущий остаток. Предложи проверить наличие на самой карточке. Не добавляй товары по памяти. " if is_ozon else "")
                 + "Не выдумывай даты или заголовки, используй только факты, "
                 "которые подтверждаются фрагментами. Не создавай отдельный "
                 "список источников в конце ответа — ссылки будут добавлены автоматически."
