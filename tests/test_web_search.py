@@ -411,7 +411,7 @@ def test_ozon_search_route_only_returns_cards_with_explicit_stock_signal(monkeyp
     assert "Цена" not in answer
 
 
-def test_ozon_search_route_returns_no_cards_when_stock_is_not_confirmed(monkeypatch):
+def test_ozon_search_route_returns_unverified_cards_when_stock_is_not_confirmed(monkeypatch):
     results = [
         {"title": "Anker Soundcore C30i", "url": "https://www.ozon.ru/product/c30i-123/"},
         {"title": "Anker Soundcore Space One", "url": "https://www.ozon.ru/product/space-one-456/",
@@ -419,9 +419,9 @@ def test_ozon_search_route_returns_no_cards_when_stock_is_not_confirmed(monkeypa
     ]
     monkeypatch.setattr(core, "search_tavily", lambda query: results)
     answer = core.process_message("Найди на Ozon наушники Anker Soundcore")
-    assert "подтверждённым признаком наличия" in answer
-    assert "C30i" not in answer
-    assert "Space One" not in answer
+    assert "наличие не подтверждено" in answer
+    assert "C30i" in answer
+    assert "Space One" in answer
 
 
 
