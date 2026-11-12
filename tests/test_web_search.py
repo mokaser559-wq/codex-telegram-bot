@@ -407,7 +407,7 @@ def test_ozon_search_route_only_returns_cards_with_explicit_stock_signal(monkeyp
     assert "Space One" in answer
     assert "Q45" not in answer
     assert "P40i" not in answer
-    assert "phone case" not in answer
+    assert "case-012" not in answer
     assert "Цена" not in answer
 
 
@@ -658,15 +658,15 @@ def test_ozon_budget_filter_requires_live_price_and_stock():
     ]
 
 
-def test_ozon_route_never_waits_for_live_stock_verification(monkeypatch):
+def test_ozon_route_does_not_show_cards_without_explicit_stock(monkeypatch):
     items = [
         {"title": "Anker Soundcore Space One", "url": "https://www.ozon.ru/product/space-one-123/"},
         {"title": "Anker Soundcore Q45", "url": "https://www.ozon.ru/product/q45-456/"},
     ]
     monkeypatch.setattr(core, "search_tavily", lambda query: items)
     answer = core.process_message("Найди на Ozon наушники Anker Soundcore")
-    assert "Space One" in answer and "Q45" in answer
-    assert "наличие" in answer.lower()
+    assert "подтверждённым признаком наличия" in answer
+    assert "Space One" not in answer and "Q45" not in answer
 
 
 def test_ozon_verification_marks_cards_beyond_limit_as_not_checked(monkeypatch):
