@@ -269,7 +269,10 @@ def rank_ozon_product_results(results, limit=5):
 def format_ozon_product_shortlist(results):
     """Show product links with popularity metrics only when search data contains them."""
     if not results:
-        return "Не нашёл подходящих карточек товаров Ozon по этому запросу."
+        return (
+            "Не нашёл на Ozon подходящих товаров с подтверждённым признаком наличия. "
+            "Не буду показывать карточки, которые могут оказаться распроданными."
+        )
 
     has_metrics = any(
         item.get("_ozon_purchase_count") is not None
