@@ -808,6 +808,56 @@ class PostgresStore:
             )
         return "imported"
 
+    def cleanup_retention(self) -> dict[str, int]:
+        """Delete only old, fully completed queue records; preserve history and failures."""
+        batch_size = 200
+        with self._db() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT i.update_id
+                   FROM inbox i
+                   WHERE i.status IN ('completed', 'ignored')
+                     AND i.processed_at < now() - interval '30 days'
+                     AND NOT EXISTS (
+                       SELECT 1 FROM outbox o
+                       WHERE o.update_id = i.update_id
+                         AND (
+                           o.status <> 'sent'
+                           OR o.sent_at IS NULL
+                           OR o.sent_at >= now() - interval '30 days'
+                         )
+                     )
+                   ORDER BY i.processed_at, i.update_id
+                   LIMIT %s
+                   FOR UPDATE OF i SKIP LOCKED""",
+                (batch_size,),
+            )
+            update_ids = [row[0] for row in cursor.fetchall()]
+            if not update_ids:
+                return {"inbox": 0, "outbox": 0}
+
+            cursor.execute(
+                """DELETE FROM outbox
+                   WHERE update_id = ANY(%s)
+                     AND status = 'sent'
+                     AND sent_at < now() - interval '30 days'""",
+                (update_ids,),
+            )
+            deleted_outbox = cursor.rowcount
+
+            cursor.execute(
+                """DELETE FROM inbox i
+                   WHERE i.update_id = ANY(%s)
+                     AND i.status IN ('completed', 'ignored')
+                     AND i.processed_at < now() - interval '30 days'
+                     AND NOT EXISTS (
+                       SELECT 1 FROM outbox o WHERE o.update_id = i.update_id
+                     )
+                   RETURNING i.update_id""",
+                (update_ids,),
+            )
+            deleted_inbox = len(cursor.fetchall())
+            return {"inbox": deleted_inbox, "outbox": deleted_outbox}
+
     def health(self, mode: str = "polling") -> dict:
         if mode not in ("polling", "webhook"):
             raise ValueError("mode must be polling or webhook")
