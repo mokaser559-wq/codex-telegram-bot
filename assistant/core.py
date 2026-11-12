@@ -11,6 +11,7 @@ from assistant.search import (
     format_ozon_debug_report,
     _is_ozon_product_query,
     format_search_context,
+    format_source_links,
     needs_search,
     search_tavily,
 )
@@ -108,5 +109,8 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
                 "список источников в конце ответа — ссылки будут добавлены автоматически."
             ),
         )
+        source_links = format_source_links(results, answer)
+        if source_links:
+            answer = answer.rstrip() + "\\n\\n" + source_links
         return answer
     return generate_answer(text, history)
