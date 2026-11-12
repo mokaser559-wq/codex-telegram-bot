@@ -6,6 +6,8 @@ from assistant.search import (
     SearchError,
     filter_search_results,
     filter_ozon_product_results,
+    verify_ozon_product_results,
+    format_ozon_search_response,
     format_ozon_search_context,
     format_ozon_debug_report,
     _is_ozon_product_query,
@@ -85,10 +87,12 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
             raw_results = search_tavily(text)
             is_ozon = _is_ozon_product_query(text)
             if is_ozon:
-                # Ozon snippets often omit stock labels; keep relevant direct product cards.
-                results = filter_ozon_product_results(raw_results)
-            else:
-                results = filter_search_results(raw_results)
+                # Search snippets are discovery only; availability must come from the live card.
+                results = verify_ozon_product_results(
+                    filter_ozon_product_results(raw_results)
+                )
+                return format_ozon_search_response(results)
+            results = filter_search_results(raw_results)
         except SearchError:
             return "Сейчас не удалось выполнить поиск, поэтому я не могу надёжно проверить актуальные сведения. Попробуй повторить запрос позже."
         if not results:
