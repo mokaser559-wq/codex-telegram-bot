@@ -554,7 +554,7 @@ def format_ozon_search_context(results, today=None):
         lines.extend((
             "Товар: " + title,
             "URL: " + url,
-            "Признак наличия в поисковой выдаче: " + evidence,
+            "Признак наличия: поисковая выдача пометила товар как доступный",
         ))
     return "\n".join(lines)
 
