@@ -178,6 +178,29 @@ def filter_ozon_product_results(results):
     return filtered
 
 
+
+def filter_ozon_results_for_query(results, query):
+    """Keep cards whose titles contain all distinctive terms from the requested brand/model."""
+    stop_words = {
+        "найди", "найти", "подбери", "подобрать", "покажи", "ozon", "озон",
+        "купить", "заказать", "товар", "товары", "вариант", "варианты",
+        "лучший", "лучшие", "популярный", "популярные", "в", "на", "для",
+        "с", "и", "или", "по", "мне", "беспроводные", "беспроводной",
+        "наушники", "наушников", "гарнитура", "гарнитуры",
+    }
+    terms = [
+        token.casefold()
+        for token in re.findall(r"[a-zа-яё0-9]+", str(query or ""), re.IGNORECASE)
+        if token.casefold() not in stop_words and len(token) > 1
+    ]
+    if not terms:
+        return filter_ozon_product_results(results)
+    return [
+        item for item in filter_ozon_product_results(results)
+        if all(term in str(item.get("title") or "").casefold() for term in terms)
+    ]
+
+
 def _ozon_count_value(raw_value, multiplier=""):
     """Convert a Russian marketplace count such as '1 2 тыс.' into an integer."""
     number = re.sub(r"[\s\u00a0\u202f]", "", str(raw_value or "")).replace(",", ".")
@@ -269,7 +292,10 @@ def rank_ozon_product_results(results, limit=5):
 def format_ozon_product_shortlist(results):
     """Show product links with popularity metrics only when search data contains them."""
     if not results:
-        return "Не нашёл подходящих карточек товаров Ozon по этому запросу."
+        return (
+            "Не нашёл на Ozon подходящих товаров с подтверждённым признаком наличия. "
+            "Не буду показывать карточки, которые могут оказаться распроданными."
+        )
 
     has_metrics = any(
         item.get("_ozon_purchase_count") is not None
