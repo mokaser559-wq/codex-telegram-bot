@@ -658,15 +658,28 @@ def test_ozon_budget_filter_requires_live_price_and_stock():
     ]
 
 
-def test_ozon_route_does_not_show_cards_without_explicit_stock(monkeypatch):
+def test_ozon_route_shows_unverified_cards_when_stock_signal_is_missing(monkeypatch):
     items = [
         {"title": "Anker Soundcore Space One", "url": "https://www.ozon.ru/product/space-one-123/"},
-        {"title": "Anker Soundcore Q45", "url": "https://www.ozon.ru/product/q45-456/"},
+        {"title": "Anker Soundcore Q45", "url": "https://www.ozon.ru/product/q45-456/", "content": "Товар закончился"},
     ]
     monkeypatch.setattr(core, "search_tavily", lambda query: items)
     answer = core.process_message("Найди на Ozon наушники Anker Soundcore")
-    assert "подтверждённым признаком наличия" in answer
-    assert "Space One" not in answer and "Q45" not in answer
+    assert "наличие не подтверждено" in answer
+    assert "Space One" in answer and "Q45" in answer
+
+
+def test_ozon_route_uses_category_fallback_when_no_product_cards(monkeypatch):
+    items = [
+        {"title": "Увлажняющие кремы для лица", "url": "https://www.ozon.ru/category/kremy-dlya-lica-123/"},
+        {"title": "Косметика", "url": "https://www.ozon.ru/category/kosmetika-456/"},
+        {"title": "Beauty blog", "url": "https://example.com/blog"},
+    ]
+    monkeypatch.setattr(core, "search_tavily", lambda query: items)
+    answer = core.process_message("Найди на Ozon увлажняющий крем для лица некомедогенный")
+    assert "разделы Ozon" in answer
+    assert "category/kremy-dlya-lica-123" in answer
+    assert "example.com" not in answer
 
 
 def test_ozon_verification_marks_cards_beyond_limit_as_not_checked(monkeypatch):
