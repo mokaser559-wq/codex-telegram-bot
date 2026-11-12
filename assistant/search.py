@@ -223,11 +223,12 @@ def extract_ozon_popularity(item):
 
     rating_match = re.search(
         r"(?:рейтинг|оценка)\s*[:—-]?\s*([0-5](?:[,.]\d{1,2})?)|"
-        r"\b([0-5](?:[,.]\d{1,2})?)\s*/\s*5\b",
+        r"\b([0-5](?:[,.]\d{1,2})?)\s*/\s*5\b|"
+        r"(?<![\d.,])([0-5][,.]\d{1,2})(?![\d.,])",
         text,
         re.IGNORECASE,
     )
-    rating_raw = (rating_match.group(1) or rating_match.group(2)) if rating_match else None
+    rating_raw = (rating_match.group(1) or rating_match.group(2) or rating_match.group(3)) if rating_match else None
     try:
         rating = float(rating_raw.replace(",", ".")) if rating_raw else None
         if rating is not None and not 0 <= rating <= 5:
