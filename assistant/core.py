@@ -5,6 +5,7 @@ from assistant.router import route_message
 from assistant.search import (
     SearchError,
     filter_search_results,
+    filter_ozon_in_stock_results,
     rank_ozon_product_results,
     format_ozon_product_shortlist,
     format_ozon_debug_report,
@@ -85,8 +86,9 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
             raw_results = search_tavily(text)
             is_ozon = _is_ozon_product_query(text)
             if is_ozon:
-                # Use Tavily relevance ranking; Ozon blocks reliable anonymous stock checks.
-                results = rank_ozon_product_results(raw_results, limit=5)
+                # Never present an Ozon card as buyable without an explicit positive stock signal.
+                in_stock = filter_ozon_in_stock_results(raw_results)
+                results = rank_ozon_product_results(in_stock, limit=5)
                 return format_ozon_product_shortlist(results)
             results = filter_search_results(raw_results)
         except SearchError:
