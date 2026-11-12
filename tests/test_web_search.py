@@ -625,26 +625,19 @@ def test_ozon_budget_filter_requires_live_price_and_stock():
     ]
 
 
-def test_ozon_route_separates_confirmed_and_unconfirmed_stock(monkeypatch):
+def test_ozon_route_never_waits_for_live_stock_verification(monkeypatch):
     items = [
-        {"title": "Confirmed", "url": "https://www.ozon.ru/product/headphones-123/"},
-        {"title": "Unknown", "url": "https://www.ozon.ru/product/headphones-456/"},
-        {"title": "Sold out", "url": "https://www.ozon.ru/product/headphones-789/"},
+        {"title": "Anker Soundcore Space One", "url": "https://www.ozon.ru/product/space-one-123/"},
+        {"title": "Anker Soundcore Q45", "url": "https://www.ozon.ru/product/q45-456/"},
     ]
     monkeypatch.setattr(core, "search_tavily", lambda query: items)
-    monkeypatch.setattr(core, "verify_ozon_product_results", lambda results: [
-        {**results[0], "_ozon_live_status": "in_stock", "_ozon_live_verified": True},
-        {**results[1], "_ozon_live_status": "unreachable", "_ozon_live_verified": False},
-        {**results[2], "_ozon_live_status": "out_of_stock", "_ozon_live_verified": False},
-    ])
-    answer = core.process_message("Найди на Ozon наушники")
-    assert "Наличие подтверждено" in answer
-    assert "headphones-123" in answer
-    assert "Наличие не подтверждено" in answer
-    assert "headphones-456" in answer
-    assert "товара нет в наличии" in answer
-    assert "headphones-789" in answer
-    assert "Цена" not in answer
+    monkeypatch.setattr(
+        core, "verify_ozon_product_results",
+        lambda results: pytest.fail("live stock verification must not be called"),
+    )
+    answer = core.process_message("Найди на Ozon наушники Anker Soundcore")
+    assert "Space One" in answer and "Q45" in answer
+    assert "наличие" in answer.lower()
 
 
 def test_ozon_verification_marks_cards_beyond_limit_as_not_checked(monkeypatch):
