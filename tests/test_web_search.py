@@ -402,7 +402,7 @@ def test_ozon_search_route_returns_relevant_shortlist_without_stock_checks(monke
     assert "Space One" in answer
     assert "Q45" in answer
     assert "наличие" in answer.lower()
-    assert "рейтинг продаж" in answer.lower()
+    assert "популярность" in answer.lower()
     assert "Цена" not in answer
 
 
