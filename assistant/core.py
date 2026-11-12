@@ -5,8 +5,7 @@ from assistant.router import route_message
 from assistant.search import (
     SearchError,
     filter_search_results,
-    verify_ozon_product_results,
-    extract_ozon_budget,
+    filter_ozon_in_stock_results,
     format_ozon_search_context,
     format_ozon_debug_report,
     _is_ozon_product_query,
@@ -87,21 +86,14 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
             raw_results = search_tavily(text)
             is_ozon = _is_ozon_product_query(text)
             if is_ozon:
-                budget = extract_ozon_budget(text)
-                results = _filter_ozon_budget_results(
-                    verify_ozon_product_results(raw_results), budget
-                )
+                results = filter_ozon_in_stock_results(raw_results)
             else:
                 results = filter_search_results(raw_results)
         except SearchError:
             return "Сейчас не удалось выполнить поиск, поэтому я не могу надёжно проверить актуальные сведения. Попробуй повторить запрос позже."
         if not results:
             if is_ozon:
-                return (
-                    "Не удалось подтвердить на карточках Ozon актуальную цену и наличие товара. "
-                    "Доставку в выбранном регионе до конкретного адреса или пункта выдачи проверить не удалось, "
-                    "поэтому я не буду выдавать товар за подходящий. Возможно, Ozon временно не отдаёт данные карточек."
-                )
+                return "Не нашёл карточек Ozon, где поисковая выдача явно указывает наличие товара. Попробуй изменить запрос."
             return (
                 "Поиск не нашёл прямых ссылок на отдельные публикации. "
                 "Я не хочу выдавать страницы разделов или главные страницы за источники."
@@ -111,7 +103,7 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
             text, history, search_context=context,
             search_notice=(
                 "Поиск выполнен. Отвечай только по найденным результатам. "
-                + ("В контексте оставлены только карточки, где цена и наличие подтверждены непосредственно на Ozon; если задан бюджет, цена не выше лимита. Доставка в выбранном регионе до конкретного адреса или пункта выдачи не проверена: называй товары только кандидатами и не утверждай, что они доставляются или полностью подходят. Не добавляй товары по памяти или из прошлых сообщений. " if is_ozon else "")
+                + ("Показывай только найденные ссылки на карточки, для которых поисковый результат явно указывает наличие. Не указывай цены, не оценивай доставку и не добавляй товары по памяти. Если наличие в источнике не указано, не утверждай, что товар в наличии. " if is_ozon else "")
                 + "Не выдумывай даты или заголовки, используй только факты, "
                 "которые подтверждаются фрагментами. Не создавай отдельный "
                 "список источников в конце ответа — ссылки будут добавлены автоматически."

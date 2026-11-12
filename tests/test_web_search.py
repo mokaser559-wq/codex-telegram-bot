@@ -362,17 +362,14 @@ def test_ozon_search_route_uses_product_filter_and_card_heading(monkeypatch):
     ]
     calls = []
     monkeypatch.setattr(core, "search_tavily", lambda query: results)
-    monkeypatch.setattr(core, "verify_ozon_product_results", lambda items: [
-        {**items[0], "_ozon_price_rub": 3990, "_ozon_price_verified": True,
-         "_ozon_live_verified": True, "_ozon_live_available": True}
-    ])
+    monkeypatch.setattr(core, "filter_ozon_in_stock_results", lambda items: items[:1])
     monkeypatch.setattr(
         core, "generate_answer",
         lambda *args, **kwargs: calls.append((args, kwargs)) or "Подходящий товар",
     )
     answer = core.process_message("Найди на Ozon беспроводные наушники")
-    assert "Цена 3 990 ₽" in calls[0][1]["search_context"]
-    assert "Доставка: не проверена" in calls[0][1]["search_context"]
+    assert "Цена" not in calls[0][1]["search_context"]
+    assert "URL: https://www.ozon.ru/product/headphones-123456/" in calls[0][1]["search_context"]
     assert "not a product card" not in calls[0][1]["search_context"]
     assert answer.endswith(
         "Карточки товаров на Ozon:\n"
@@ -454,10 +451,8 @@ def test_ozon_enrichment_keeps_unknown_price_explicit():
     assert [item["_ozon_price_rub"] for item in items] == [4500, None, 3900, 3900]
     assert [item["_ozon_price_verified"] for item in items] == [True, False, False, False]
     context = search.format_ozon_search_context(items, today="2026-11-12")
-    assert "Цена: 4500 ₽" in context
-    assert "примерно 3900 ₽ (поисковый фрагмент Tavily)" in context
-    assert context.count("не удалось однозначно подтвердить") == 1
-    assert "примерно 3900 ₽ (поисковый фрагмент Tavily)" in context
+    assert "Цена" not in context
+    assert "URL: https://www.ozon.ru/product/a-123/" in context
 
 
 def test_ozon_snippet_price_is_presented_as_approximate_not_exact():
@@ -469,8 +464,8 @@ def test_ozon_snippet_price_is_presented_as_approximate_not_exact():
     assert item["_ozon_price_rub"] == 4700
     assert item["_ozon_price_verified"] is False
     context = search.format_ozon_search_context([item])
-    assert "примерно 4700 ₽" in context
-    assert "подтверждена по содержимому карточки" not in context
+    assert "Цена" not in context
+    assert "URL: https://www.ozon.ru/product/anker-headphones-123/" in context
 
 
 def test_ozon_search_combines_broad_and_direct_product_queries(monkeypatch):
@@ -615,22 +610,19 @@ def test_ozon_budget_filter_requires_live_price_and_stock():
     ]
 
 
-def test_ozon_route_does_not_recommend_when_live_verification_fails(monkeypatch):
-    items = [{
-        "title": "Unverified",
-        "url": "https://www.ozon.ru/product/headphones-123/",
-    }]
+def test_ozon_route_returns_only_explicit_in_stock_product_links(monkeypatch):
+    items = [
+        {"title": "In stock", "url": "https://www.ozon.ru/product/headphones-123/",
+         "content": "В наличии"},
+        {"title": "Unknown stock", "url": "https://www.ozon.ru/product/headphones-456/",
+         "content": "Наушники Bluetooth"},
+    ]
     monkeypatch.setattr(core, "search_tavily", lambda query: items)
-    monkeypatch.setattr(core, "verify_ozon_product_results", lambda results: [
-        {**items[0], "_ozon_live_verified": False, "_ozon_live_available": None}
-    ])
-    monkeypatch.setattr(
-        core, "generate_answer",
-        lambda *args, **kwargs: pytest.fail("unverified products must not reach the model"),
-    )
-    answer = core.process_message("Найди на Ozon наушники до 5000 рублей")
-    assert "не буду выдавать товар за подходящий" in answer
-    assert "ozon.ru/product/" not in answer
+    monkeypatch.setattr(core, "generate_answer", lambda *args, **kwargs: "Вот варианты")
+    answer = core.process_message("Найди на Ozon наушники")
+    assert "headphones-123" in answer
+    assert "headphones-456" not in answer
+    assert "Цена" not in answer
 
 
 def test_ozon_search_includes_configured_delivery_city(monkeypatch):
@@ -664,6 +656,6 @@ def test_ozon_context_labels_region_as_search_hint_not_verified_delivery(monkeyp
     context = search.format_ozon_search_context([
         {"title": "Headphones", "url": "https://www.ozon.ru/product/headphones-123456/"}
     ])
-    assert "Регион поиска Ozon: Санкт-Петербург" in context
-    assert "поисковая подсказка; доставка не подтверждена" in context
-    assert "Доставка: не проверена для адреса или пункта выдачи" in context
+    assert "Headphones" in context
+    assert "Цена" not in context
+    assert "Доставка" not in context
