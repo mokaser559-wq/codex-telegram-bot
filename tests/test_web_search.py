@@ -362,7 +362,7 @@ def test_ozon_search_route_uses_product_filter_and_card_heading(monkeypatch):
     ]
     calls = []
     monkeypatch.setattr(core, "search_tavily", lambda query: results)
-    monkeypatch.setattr(core, "filter_ozon_in_stock_results", lambda items: items[:1])
+    monkeypatch.setattr(core, "filter_ozon_product_results", lambda items: search.filter_ozon_product_results(items)[:1])
     monkeypatch.setattr(
         core, "generate_answer",
         lambda *args, **kwargs: calls.append((args, kwargs)) or "Подходящий товар",
@@ -610,7 +610,7 @@ def test_ozon_budget_filter_requires_live_price_and_stock():
     ]
 
 
-def test_ozon_route_returns_only_explicit_in_stock_product_links(monkeypatch):
+def test_ozon_route_returns_product_links_without_stock_snippets(monkeypatch):
     items = [
         {"title": "In stock", "url": "https://www.ozon.ru/product/headphones-123/",
          "content": "В наличии"},
@@ -621,7 +621,7 @@ def test_ozon_route_returns_only_explicit_in_stock_product_links(monkeypatch):
     monkeypatch.setattr(core, "generate_answer", lambda *args, **kwargs: "Вот варианты")
     answer = core.process_message("Найди на Ozon наушники")
     assert "headphones-123" in answer
-    assert "headphones-456" not in answer
+    assert "headphones-456" in answer
     assert "Цена" not in answer
 
 
