@@ -496,12 +496,60 @@ def _verify_ozon_card(item):
 
 
 def verify_ozon_product_results(results):
-    """Verify Ozon cards only from the live product page; never trust search extraction as live."""
-    candidates = filter_ozon_product_results(results)[:8]
+    """Verify a bounded number of Ozon cards; mark the rest as unchecked."""
+    candidates = filter_ozon_product_results(results)
     if not candidates:
         return []
+    checked = candidates[:8]
     with ThreadPoolExecutor(max_workers=4) as executor:
-        return list(executor.map(_verify_ozon_card, candidates))
+        verified = list(executor.map(_verify_ozon_card, checked))
+    verified.extend({
+        **item,
+        "_ozon_live_verified": False,
+        "_ozon_live_status": "not_checked",
+    } for item in candidates[8:])
+    return verified
+
+
+def format_ozon_search_response(results):
+    """Render product links with explicit, evidence-based availability states."""
+    if not results:
+        return "Не нашёл подходящих прямых карточек Ozon по этому запросу."
+
+    confirmed = [item for item in results if item.get("_ozon_live_status") == "in_stock"]
+    unavailable = [item for item in results if item.get("_ozon_live_status") == "out_of_stock"]
+    unknown = [
+        item for item in results
+        if item.get("_ozon_live_status") not in {"in_stock", "out_of_stock"}
+    ]
+
+    lines = []
+    if confirmed:
+        lines.append("Наличие подтверждено данными карточки при автоматической проверке:")
+        groups = [(confirmed, "В наличии по данным карточки")]
+    else:
+        lines.append("Не удалось автоматически подтвердить наличие ни у одной найденной карточки.")
+        groups = []
+
+    if unknown:
+        groups.append((unknown, "Наличие не подтверждено — проверь карточку"))
+    if unavailable:
+        groups.append((unavailable, "По данным карточки товара нет в наличии"))
+
+    for items, label in groups:
+        lines.append("")
+        lines.append(label + ":")
+        for item in items:
+            title = _clean_text(item.get("title")) or "Товар Ozon"
+            url = _canonical_ozon_product_url(item.get("url"))
+            if url:
+                lines.append("- " + title + ": " + url)
+
+    lines.extend((
+        "",
+        "Цены и доставка не проверялись. Даже подтверждённое наличие может измениться до оформления заказа.",
+    ))
+    return "\\n".join(lines)
 
 
 def enrich_ozon_product_results(results):
@@ -554,7 +602,7 @@ def format_ozon_search_context(results, today=None):
         lines.extend((
             "Товар: " + title,
             "URL: " + url,
-            "Признак наличия: поисковая выдача пометила товар как доступный",
+            "Наличие: " + (\n                "подтверждено данными карточки" if item.get("_ozon_live_status") == "in_stock"\n                else "товар недоступен по данным карточки" if item.get("_ozon_live_status") == "out_of_stock"\n                else "не удалось подтвердить"\n            ),
         ))
     return "\n".join(lines)
 
