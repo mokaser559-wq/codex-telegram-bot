@@ -25,6 +25,7 @@ SEARCH_SYSTEM_RULE = (
     "Для рекомендаций товаров на Ozon используй только результаты отдельной проверки актуальной карточки: "
     "цена в рублях и явный статус наличия должны быть получены непосредственно со страницы Ozon. "
     "Поисковые фрагменты Tavily не подтверждают актуальную цену или наличие и не могут служить основанием рекомендации. "
+    "Регион поиска Ozon может влиять на релевантность выдачи, но сам по себе не подтверждает цену, наличие или доставку в этом регионе. " 
     "Если Ozon не отдаёт проверяемые данные, сообщи, что проверить товар не удалось; не угадывай. "
     "Не используй старую зачёркнутую цену, стоимость доставки, рассрочку или кешбэк как цену товара. "
     "Цена может измениться. Не подменяй карточку товара страницей категории, поиска, "
@@ -477,105 +478,13 @@ def _verify_ozon_card(item):
 
 
 
-def _fetch_tavily_extract_contents(urls):
-    """Fetch known Ozon cards through Tavily Extract when direct Ozon access is blocked."""
-    api_key = os.environ.get("TAVILY_API_KEY", "").strip()
-    if not api_key or not urls:
-        return {}
-    request = urllib.request.Request(
-        "https://api.tavily.com/extract",
-        data=json.dumps({
-            "api_key": api_key,
-            "urls": urls[:20],
-            "extract_depth": "advanced",
-            "format": "markdown",
-            "query": "Актуальная цена самого товара в рублях и явный статус наличия товара",
-        }).encode("utf-8"),
-        headers={"Content-Type": "application/json", "User-Agent": "Klodd/1.0"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=35) as response:
-            payload = json.load(response)
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError, TypeError):
-        return {}
-    extracted = {}
-    for result in payload.get("results", []) if isinstance(payload, dict) else []:
-        if not isinstance(result, dict):
-            continue
-        key = _url_key(result.get("url"))
-        raw = result.get("raw_content")
-        if key and isinstance(raw, str) and raw.strip():
-            extracted[key] = raw
-    return extracted
-
-
-def _tavily_extracted_card_offer(raw_content, fallback_title=""):
-    """Accept only one unambiguous RUB price plus an explicit current stock statement."""
-    text = str(raw_content or "")
-    lowered = text.lower().replace("ё", "е")
-    unavailable = re.search(
-        r"нет\s+в\s+наличии|товар\s+закончился|закончился|распродан|"
-        r"out\s+of\s+stock|sold\s+out|недоступен\s+для\s+заказа",
-        lowered,
-    )
-    if unavailable:
-        return None
-    available = re.search(
-        r"в\s+наличии|есть\s+в\s+наличии|доступен\s+к\s+заказу|"
-        r"можно\s+заказать|осталось\s+\d+|in\s+stock|limited\s+availability",
-        lowered,
-    )
-    if not available:
-        return None
-    prices = _labeled_prices_in_text(text)
-    if not prices:
-        prices = _prices_outside_nonproduct_context(text)
-    if len(prices) != 1:
-        return None
-    title_match = re.search(r"(?im)^\s*(?:название|товар|product)\s*:\s*(.+)$", text)
-    title = _clean_text(title_match.group(1)) if title_match else _clean_text(fallback_title)
-    return {
-        "title": title,
-        "price": next(iter(prices)),
-        "available": True,
-        "availability": "instock",
-    }
-
 def verify_ozon_product_results(results):
-    """Verify Ozon cards directly, then use Tavily Extract as a live-page fallback."""
+    """Verify Ozon cards only from the live product page; never trust search extraction as live."""
     candidates = filter_ozon_product_results(results)[:8]
     if not candidates:
         return []
     with ThreadPoolExecutor(max_workers=4) as executor:
-        verified = list(executor.map(_verify_ozon_card, candidates))
-    fallback = [
-        item for item in verified
-        if item.get("_ozon_live_verified") is not True
-        and item.get("_ozon_live_status") != "out_of_stock"
-    ]
-    extracted = (
-        _fetch_tavily_extract_contents([item["url"] for item in fallback])
-        if fallback else {}
-    )
-    by_url = {_url_key(item["url"]): item for item in fallback}
-    for key, raw_content in extracted.items():
-        item = by_url.get(key)
-        if item is None:
-            continue
-        offer = _tavily_extracted_card_offer(raw_content, item.get("title"))
-        if offer is None:
-            continue
-        item.update({
-            "title": offer["title"] or item.get("title") or "Товар Ozon",
-            "_ozon_price_rub": offer["price"],
-            "_ozon_price_source": "актуальное извлечение карточки Ozon через Tavily",
-            "_ozon_price_verified": True,
-            "_ozon_live_verified": True,
-            "_ozon_live_available": True,
-            "_ozon_live_status": "in_stock",
-        })
-    return verified
+        return list(executor.map(_verify_ozon_card, candidates))
 
 
 def enrich_ozon_product_results(results):
@@ -621,16 +530,18 @@ def extract_ozon_budget(query):
 def format_ozon_search_context(results, today=None):
     """Build a compact context with deterministic price verification labels."""
     today = today or date.today().isoformat()
-    lines = ["Дата поиска: " + today]
+    lines = [
+        "Дата поиска: " + today,
+        "Регион поиска Ozon: " + ozon_delivery_city() + " (поисковая подсказка; доставка не подтверждена)",
+    ]
     for item in results:
         title = _clean_text(item.get("title"))
         url = _valid_http_url(item.get("url"))
         price = item.get("_ozon_price_rub")
-        source = item.get("_ozon_price_source") or ""
         verified = item.get("_ozon_price_verified") is True
         price_text = (
-            str(price) + " ₽ (проверена непосредственно по карточке Ozon; цена может измениться)"
-            if verified and isinstance(price, int) and price > 0
+            str(int(price)) + " ₽ (проверена непосредственно по карточке Ozon; цена может измениться)"
+            if verified and isinstance(price, (int, float)) and not isinstance(price, bool) and price > 0
             else (
                 "примерно " + str(price) + " ₽ (поисковый фрагмент Tavily)"
                 if isinstance(price, int) and price > 0
@@ -642,6 +553,7 @@ def format_ozon_search_context(results, today=None):
             "Цена: " + price_text,
             "URL: " + url,
             "Наличие: подтверждено на карточке Ozon" if item.get("_ozon_live_available") is True else "Наличие: не подтверждено",
+            "Доставка: не проверена для адреса или пункта выдачи",
             "Фрагмент: " + _clean_text(item.get("content")),
         ))
     return "\n".join(lines)
@@ -695,7 +607,7 @@ def format_ozon_debug_report(results):
             "URL: " + (url or str(item.get("url") or "не указан")[:180]),
             "Фильтр: " + reason,
             "Цена: " + (
-                str(parsed_price.get("_ozon_price_rub")) + " ₽; подтверждена"
+                str(parsed_price.get("_ozon_price_rub")) + " ₽; найдена в raw_content, не live-проверка"
                 if parsed_price.get("_ozon_price_verified") is True
                 else "не подтверждена"
             ),
@@ -712,6 +624,11 @@ def format_ozon_debug_report(results):
     return "\n".join(lines)[:3600]
 
 
+def ozon_delivery_city():
+    """Return the configured Ozon delivery city used as a search hint."""
+    return os.environ.get("OZON_DELIVERY_CITY", "Санкт-Петербург").strip() or "Санкт-Петербург"
+
+
 def search_tavily(query):
     api_key = os.environ.get("TAVILY_API_KEY", "").strip()
     if not api_key:
@@ -720,6 +637,9 @@ def search_tavily(query):
     is_ozon = _is_ozon_product_query(query)
     date_range = requested_date_range(query)
     ozon_discovery_query = remove_ozon_budget_constraint(query) if is_ozon else query
+    if is_ozon:
+        region_hint = " доставка в " + ozon_delivery_city()
+        ozon_discovery_query = str(ozon_discovery_query).strip() + region_hint
     search_queries = (
         ["site:ozon.ru " + str(ozon_discovery_query).strip(),
          "site:ozon.ru/product/ " + str(ozon_discovery_query).strip()]

@@ -5,8 +5,8 @@ from assistant.router import route_message
 from assistant.search import (
     SearchError,
     filter_search_results,
-    filter_ozon_product_results,
-    enrich_ozon_product_results,
+    verify_ozon_product_results,
+    extract_ozon_budget,
     format_ozon_search_context,
     format_ozon_debug_report,
     _is_ozon_product_query,
@@ -15,6 +15,24 @@ from assistant.search import (
     needs_search,
     search_tavily,
 )
+
+
+
+def _filter_ozon_budget_results(results, budget):
+    """Keep only products with a live price and explicit in-stock state."""
+    filtered = []
+    for item in results:
+        price = item.get("_ozon_price_rub")
+        if item.get("_ozon_live_verified") is not True:
+            continue
+        if item.get("_ozon_live_available") is not True:
+            continue
+        if not isinstance(price, (int, float)) or isinstance(price, bool) or price <= 0:
+            continue
+        if budget is not None and price > budget:
+            continue
+        filtered.append(item)
+    return filtered
 
 
 def process_message(text, history=None, codex_handler=None, status_handler=None, requeue_handler=None):
@@ -69,7 +87,10 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
             raw_results = search_tavily(text)
             is_ozon = _is_ozon_product_query(text)
             if is_ozon:
-                results = enrich_ozon_product_results(raw_results)
+                budget = extract_ozon_budget(text)
+                results = _filter_ozon_budget_results(
+                    verify_ozon_product_results(raw_results), budget
+                )
             else:
                 results = filter_search_results(raw_results)
         except SearchError:
@@ -77,8 +98,9 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
         if not results:
             if is_ozon:
                 return (
-                    "Не удалось найти прямые карточки товаров Ozon по этому запросу. "
-                    "Попробуй уточнить название бренда или тип товара."
+                    "Не удалось подтвердить на карточках Ozon актуальную цену и наличие товара. "
+                    "Доставку в выбранном регионе до конкретного адреса или пункта выдачи проверить не удалось, "
+                    "поэтому я не буду выдавать товар за подходящий. Возможно, Ozon временно не отдаёт данные карточек."
                 )
             return (
                 "Поиск не нашёл прямых ссылок на отдельные публикации. "
@@ -89,7 +111,7 @@ def process_message(text, history=None, codex_handler=None, status_handler=None,
             text, history, search_context=context,
             search_notice=(
                 "Поиск выполнен. Отвечай только по найденным результатам. "
-                + ("Это результаты поиска карточек товаров, а не подтверждённый каталог. Перечисляй найденные карточки даже если цена или наличие не извлечены. Цену из поискового фрагмента называй только примерной; если цены нет, так и напиши. Наличие отмечай как неподтверждённое, если нет явных данных. Не применяй ценовой потолок как фильтр и не добавляй товары по памяти или из прошлых сообщений. " if is_ozon else "")
+                + ("В контексте оставлены только карточки, где цена и наличие подтверждены непосредственно на Ozon; если задан бюджет, цена не выше лимита. Доставка в выбранном регионе до конкретного адреса или пункта выдачи не проверена: называй товары только кандидатами и не утверждай, что они доставляются или полностью подходят. Не добавляй товары по памяти или из прошлых сообщений. " if is_ozon else "")
                 + "Не выдумывай даты или заголовки, используй только факты, "
                 "которые подтверждаются фрагментами. Не создавай отдельный "
                 "список источников в конце ответа — ссылки будут добавлены автоматически."
