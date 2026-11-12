@@ -680,6 +680,7 @@ def _status_text(store, mode="polling"):
 def worker_loop(store, stop, fatal=None, mode="polling"):
     heartbeat_at = 0.0
     recovery_at = 0.0
+    retention_at = 0.0
     while not stop.is_set():
         try:
             now = time.monotonic()
@@ -689,6 +690,18 @@ def worker_loop(store, stop, fatal=None, mode="polling"):
             if now - recovery_at >= 15:
                 store.recover_stale()
                 recovery_at = now
+            if now - retention_at >= 24 * 60 * 60:
+                retention_at = now
+                try:
+                    cleaned = store.cleanup_retention()
+                except StorageUnavailable:
+                    retention_at = now - (24 * 60 * 60) + (15 * 60)
+                    raise
+                if cleaned["inbox"] or cleaned["outbox"]:
+                    LOG.info(
+                        "Retention cleanup removed %d inbox and %d outbox records",
+                        cleaned["inbox"], cleaned["outbox"],
+                    )
             item = store.claim_inbox()
             if item is not None:
                 process_inbox_item(store, item, mode=mode)
